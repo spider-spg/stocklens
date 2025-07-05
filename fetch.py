@@ -675,18 +675,26 @@ def create_dashboard(data, ticker, predictions, error_metrics=None):
             return dict(content=data.to_json(), filename=f"{ticker_val}_analysis.json")
         return None
 
-    # Only run the Dash server if running locally (not under gunicorn/Azure)
-    import os
-    if os.environ.get("WERKZEUG_RUN_MAIN") == "true" or __name__ == "__main__":
-        app.run(debug=True, use_reloader=False, port=8000)
-# Only run the dashboard if this script is executed directly (not imported by gunicorn)
-if __name__ == "__main__":
-    # Default values for initial dashboard load
+    return app
+
+# Expose server for Azure/gunicorn
+# Default values for initial dashboard load
+server = None
+if __name__ != "__main__":
     default_ticker = "AAPL"
     default_data = fetch_stock_data(default_ticker)
     default_data = calculate_indicators(default_data)
     default_predictions, default_error_metrics = predict_stock_prices(default_data)
-    create_dashboard(default_data, default_ticker, default_predictions, default_error_metrics)
+    app = create_dashboard(default_data, default_ticker, default_predictions, default_error_metrics)
+    server = app.server
+
+if __name__ == "__main__":
+    default_ticker = "AAPL"
+    default_data = fetch_stock_data(default_ticker)
+    default_data = calculate_indicators(default_data)
+    default_predictions, default_error_metrics = predict_stock_prices(default_data)
+    app = create_dashboard(default_data, default_ticker, default_predictions, default_error_metrics)
+    app.run(debug=True, use_reloader=False, port=8000)
 
 
 
