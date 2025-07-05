@@ -316,6 +316,7 @@ def create_dashboard(data, ticker, predictions, error_metrics=None):
     Build and launch a web dashboard for stock analysis using Dash.
     """
     app = dash.Dash(__name__)
+    server = app.server  # Expose server for Azure
 
     # Add buy/sell signals based on EMA
     data['Buy_Signal'] = (data['Close'] > data['EMA_20']) & (data['Close'].shift(1) <= data['EMA_20'])
