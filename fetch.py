@@ -675,8 +675,11 @@ def create_dashboard(data, ticker, predictions, error_metrics=None):
             return dict(content=data.to_json(), filename=f"{ticker_val}_analysis.json")
         return None
 
-    app.run(debug=True, use_reloader=False, port=8050)
-# Remove main() and terminal entrypoint, launch dashboard directly
+    # Only run the Dash server if running locally (not under gunicorn/Azure)
+    import os
+    if os.environ.get("WERKZEUG_RUN_MAIN") == "true" or __name__ == "__main__":
+        app.run(debug=True, use_reloader=False, port=8000)
+# Only run the dashboard if this script is executed directly (not imported by gunicorn)
 if __name__ == "__main__":
     # Default values for initial dashboard load
     default_ticker = "AAPL"
