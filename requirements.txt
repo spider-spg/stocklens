@@ -10,3 +10,6 @@ requests
 textblob
 gunicorn
 openpyxl
+azure-functions
+azure-storage-blob
+```
