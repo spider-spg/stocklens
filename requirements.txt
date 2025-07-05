@@ -1,0 +1,12 @@
+dash
+plotly
+yfinance
+pandas
+numpy
+scikit-learn
+rich
+torch
+requests
+textblob
+gunicorn
+openpyxl
