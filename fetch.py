@@ -409,10 +409,84 @@ def create_dashboard(data, ticker, predictions, error_metrics=None):
                 /* Responsive styles for mobile */
                 body { margin: 0; padding: 0; }
                 .dash-table-container { overflow-x: auto; }
+                /* Logo styles */
+                .stocklens-logo {
+                    height: 150px;
+                    margin-right: 25px;
+                    vertical-align: middle;
+                    display: inline-block;
+                    position: absolute;
+                    top: 10px;
+                    left: 20px;
+                    z-index: 10;
+                    transition: all 0.3s;
+                }
+                /* Button styles */
+                button, .dash-button, .dash-spreadsheet-menu button {
+                    background: linear-gradient(90deg, #2980b9 0%, #6dd5fa 100%);
+                    color: #fff;
+                    border: none;
+                    border-radius: 5px;
+                    padding: 8px 20px;
+                    font-size: 1rem;
+                    font-family: inherit;
+                    cursor: pointer;
+                    box-shadow: 0 2px 8px rgba(41,128,185,0.08);
+                    transition: background 0.2s, box-shadow 0.2s, transform 0.1s;
+                }
+                button:hover, .dash-button:hover, .dash-spreadsheet-menu button:hover {
+                    background: linear-gradient(90deg, #6dd5fa 0%, #2980b9 100%);
+                    box-shadow: 0 4px 16px rgba(41,128,185,0.18);
+                    transform: translateY(-2px) scale(1.04);
+                }
+                /* Feedback button override */
+                .feedback-btn {
+                    background: linear-gradient(90deg, #4285F4 0%, #34a853 100%);
+                    color: #fff;
+                }
+                .feedback-btn:hover {
+                    background: linear-gradient(90deg, #34a853 0%, #4285F4 100%);
+                }
                 @media (max-width: 600px) {
                     .dash-table-container, .dash-spreadsheet-container, .dash-table { font-size: 13px !important; }
                     .dash-table-container table { width: 100% !important; }
                     .dash-table-container th, .dash-table-container td { padding: 6px 4px !important; }
+                    .stocklens-logo {
+                        position: static;
+                        display: block;
+                        margin: 0 auto 10px auto;
+                        height: 70px;
+                        max-width: 90vw;
+                    }
+                    .main-content-mobile-margin {
+                        margin-top: 10px !important;
+                    }
+                    .modern-input {
+                        width: 95vw !important;
+                        max-width: 400px !important;
+                        font-size: 1.1rem !important;
+                        padding: 14px 18px !important;
+                    }
+                }
+                /* Modern input style */
+                .modern-input {
+                    width: 100%;
+                    max-width: 400px;
+                    font-size: 1.15rem;
+                    padding: 14px 20px;
+                    border: 1.5px solid #b2bec3;
+                    border-radius: 8px;
+                    box-shadow: 0 2px 8px rgba(41,128,185,0.07);
+                    outline: none;
+                    transition: border 0.2s, box-shadow 0.2s;
+                    background: #fafdff;
+                    color: #222;
+                    margin-bottom: 10px;
+                }
+                .modern-input:focus {
+                    border: 2px solid #2980b9;
+                    box-shadow: 0 4px 16px rgba(41,128,185,0.13);
+                    background: #f0f8ff;
                 }
             </style>
         </head>
@@ -544,18 +618,61 @@ def create_dashboard(data, ticker, predictions, error_metrics=None):
     ])
 
     app.layout = html.Div([
+        # Floating Disclaimer Modal Overlay
+        html.Div(
+            id="disclaimer-modal",
+            children=[
+                html.Div([
+                    html.H2("Disclaimer", style={"color": "#1565c0", "marginBottom": 12, "textAlign": "center"}),
+                    html.P(
+                        "This tool is for educational and informational purposes only. It does not constitute investment advice, recommendation, or solicitation to buy or sell any securities. The creator and contributors of this tool are not SEBI-registered investment advisors. Users are solely responsible for their own investment decisions and should consult a SEBI-registered financial advisor before making any investment decisions. The creators and contributors assume no liability for any losses or damages arising from the use of this tool. Past performance is not indicative of future results. All investments are subject to market risks, including the possible loss of principal. By using this tool, you acknowledge and accept these risks.",
+                        style={"color": "#333", "fontSize": 16, "marginBottom": 24, "textAlign": "justify"}
+                    ),
+                    html.Button("I Agree", id="agree-btn", n_clicks=0, style={
+                        "background": "#1565c0",
+                        "color": "white",
+                        "border": "none",
+                        "padding": "12px 32px",
+                        "borderRadius": "6px",
+                        "fontSize": "1.1rem",
+                        "fontWeight": "bold",
+                        "boxShadow": "0 2px 8px rgba(21,101,192,0.13)",
+                        "cursor": "pointer",
+                        "margin": "0 auto",
+                        "display": "block"
+                    })
+                ], style={
+                    "background": "#fff",
+                    "padding": "32px 24px 24px 24px",
+                    "borderRadius": "12px",
+                    "boxShadow": "0 4px 32px rgba(44,62,80,0.18)",
+                    "maxWidth": "480px",
+                    "width": "90vw",
+                    "margin": "10vh auto 0 auto",
+                    "textAlign": "center"
+                })
+            ],
+            style={
+                "position": "fixed",
+                "top": 0,
+                "left": 0,
+                "width": "100vw",
+                "height": "100vh",
+                "background": "rgba(44,62,80,0.55)",
+                "zIndex": 9999,
+                "display": "flex",
+                "alignItems": "flex-start",
+                "justifyContent": "center"
+            }
+        ),
+        # No persistent store, always prompt on page load
         html.Div([
             html.Img(
                 src="/assets/logocode.jpg",
-                style={
-                    "height": "150px",
-                    "marginRight": "25px",
-                    "verticalAlign": "middle",
-                    "display": "inline-block",
-                },
+                className="stocklens-logo",
                 alt="Logo"
             )
-        ], style={"position": "absolute", "top": 10, "left": 20, "zIndex": 10}),
+        ]),
         html.H1(
             "StockLens Hub",
             style={
@@ -567,9 +684,21 @@ def create_dashboard(data, ticker, predictions, error_metrics=None):
             }
         ),
         html.Div([
-            dcc.Input(id="ticker-input", type="text", placeholder="Enter stock ticker(s) (e.g., AAPL, TCS.NS)", value=ticker, style={"marginRight": 10, "width": "90%", "maxWidth": 300, "marginBottom": 10, "fontSize": "1rem"}),
-            dcc.DatePickerSingle(id="start-date", placeholder="Start Date", style={"marginRight": 10, "marginBottom": 10}),
-            dcc.DatePickerSingle(id="end-date", placeholder="End Date", style={"marginRight": 10, "marginBottom": 10}),
+            dcc.Input(
+                id="ticker-input",
+                type="text",
+                placeholder="Enter stock symbol(s) (e.g., AAPL, TCS.NS)",
+                value=ticker,
+                className="modern-input"
+            ),
+            html.Div([
+                dcc.DatePickerSingle(id="start-date", placeholder="Start Date", style={"marginRight": 10, "marginBottom": 10}),
+                dcc.DatePickerSingle(id="end-date", placeholder="End Date", style={"marginRight": 10, "marginBottom": 10}),
+                html.Span(
+                    "(Default: last 5 years. Set dates for custom analysis)",
+                    style={"marginLeft": 12, "color": "#888", "fontSize": "1rem", "verticalAlign": "middle", "whiteSpace": "nowrap"}
+                )
+            ], style={"display": "flex", "alignItems": "center", "justifyContent": "center", "gap": 4, "flexWrap": "wrap", "marginBottom": 10}),
             html.Button("Submit", id="submit-btn", n_clicks=0, style={"background": "#2980b9", "color": "white", "border": "none", "padding": "8px 18px", "borderRadius": 5, "fontSize": "1rem", "width": "90%", "maxWidth": 200})
         ], style={"textAlign": "center", "marginBottom": 30, "display": "flex", "flexDirection": "column", "alignItems": "center", "gap": 8}),
         # Removed export controls and download prompt
@@ -588,18 +717,11 @@ def create_dashboard(data, ticker, predictions, error_metrics=None):
         # Feedback button directly below disclaimer
         html.Div([
             html.A(
-                html.Button("Submit Feedback", style={
-                    "background": "#4285F4",
-                    "color": "white",
-                    "border": "none",
-                    "padding": "8px 20px",
-                    "borderRadius": 5,
-                    "fontSize": "1rem",
+                html.Button("Submit Feedback", className="feedback-btn", style={
                     "margin": "18px auto 0 auto",
-                    "display": "block",
-                    "cursor": "pointer"
+                    "display": "block"
                 }),
-                href="https://forms.gle/your-google-form-link",  # TODO: Replace with your actual Google Form link
+                href="https://forms.gle/kdLnidUgrumkz9uS6",
                 target="_blank",
                 style={"textDecoration": "none", "display": "block", "width": "fit-content", "margin": "0 auto"}
             )
@@ -614,7 +736,22 @@ def create_dashboard(data, ticker, predictions, error_metrics=None):
         ])
     ], style={"fontFamily": "Segoe UI, Arial, sans-serif", "backgroundColor": "#f8f9fa", "padding": 0, "minHeight": "100vh", "width": "100vw", "boxSizing": "border-box"})
 
-    # Removed export controls callback
+    # Hide/show disclaimer modal for every visit (no persistence)
+    @app.callback(
+        Output("disclaimer-modal", "style"),
+        [Input("agree-btn", "n_clicks")],
+        [State("disclaimer-modal", "style")]
+    )
+    def toggle_modal(n_clicks, style):
+        # If user clicks agree, set display none
+        if n_clicks and n_clicks > 0:
+            s = dict(style) if style else {}
+            s["display"] = "none"
+            return s
+        # Otherwise, show modal
+        s = dict(style) if style else {}
+        s["display"] = "flex"
+        return s
 
     @app.callback(
         Output("dashboard-content", "children"),
@@ -629,9 +766,26 @@ def create_dashboard(data, ticker, predictions, error_metrics=None):
             return html.Div("Enter a ticker and click Submit to view analysis.", style={"textAlign": "center", "color": "#888", "marginTop": 40})
         # Support comma-separated tickers for peer comparison
         tickers = [t.strip() for t in ticker_val.split(",") if t.strip()]
-        # Only use the first ticker for most tabs except peer comparison
-        main_ticker = tickers[0] if tickers else "AAPL"
+        # Helper: add .NS if not present and not a known US ticker
+        def normalize_ticker(t):
+            t = t.upper()
+            # If already has a suffix, return as is
+            if "." in t:
+                return t
+            # List of common US tickers (expand as needed)
+            us_tickers = {"AAPL", "MSFT", "GOOG", "GOOGL", "AMZN", "TSLA", "META", "NVDA", "NFLX", "BRK.B", "JPM", "V", "UNH", "HD", "PG", "MA", "DIS", "BAC", "XOM", "PFE", "WMT", "INTC", "CSCO", "T", "VZ", "KO", "PEP", "MRK", "CVX", "ABBV", "MCD", "COST", "ADBE", "CRM", "ABT", "CMCSA", "TMO", "ACN", "AVGO", "QCOM", "TXN", "LIN", "NEE", "DHR", "NKE", "MDT", "HON", "UNP", "AMGN", "LOW", "MS", "GS", "BLK", "AXP", "BA", "CAT", "GE", "IBM", "ORCL", "SBUX", "LMT", "MMM", "SPGI", "BKNG", "ISRG", "NOW", "PLD", "ZTS", "GILD", "SYK", "MDLZ", "MO", "TGT", "DE", "DUK", "SO", "USB", "C", "FDX", "GM", "F", "DAL", "UAL", "AAL", "UAL", "UAL"}
+            if t in us_tickers:
+                return t
+            # Otherwise, assume Indian stock and add .NS
+            return t + ".NS"
+        norm_tickers = [normalize_ticker(t) for t in tickers]
+        main_ticker = norm_tickers[0] if norm_tickers else "AAPL"
         data = fetch_stock_data(main_ticker, start_date_val, end_date_val)
+        if data.empty:
+            # Try fallback: if user entered without .NS and not in US list, try as-is (for BSE or other)
+            fallback_ticker = tickers[0] if tickers else "AAPL"
+            if fallback_ticker != main_ticker:
+                data = fetch_stock_data(fallback_ticker, start_date_val, end_date_val)
         if data.empty:
             return html.Div("No data found for the given ticker or date range.", style={"color": "red", "textAlign": "center", "marginTop": 40})
         data = calculate_indicators(data)
@@ -691,12 +845,14 @@ def create_dashboard(data, ticker, predictions, error_metrics=None):
             metrics_component = html.Div()
         # Peer Comparison Tab
         if tab == "tab-analysis" and len(tickers) > 1:
-            # Fetch and plot all tickers
+            # Fetch and plot all tickers (normalize each)
             traces = []
-            for t in tickers:
-                d = fetch_stock_data(t, start_date_val, end_date_val)
+            for orig, norm in zip(tickers, norm_tickers):
+                d = fetch_stock_data(norm, start_date_val, end_date_val)
+                if d.empty and orig != norm:
+                    d = fetch_stock_data(orig, start_date_val, end_date_val)
                 if not d.empty:
-                    traces.append(go.Scatter(x=d.index, y=d['Close'], name=t))
+                    traces.append(go.Scatter(x=d.index, y=d['Close'], name=orig))
             if traces:
                 fig = go.Figure(traces)
                 fig.update_layout(title="Peer Comparison: Closing Prices", xaxis_title="Date", yaxis_title="Price", autosize=True, margin=dict(l=10, r=10, t=40, b=10), height=400)
@@ -784,49 +940,11 @@ def create_dashboard(data, ticker, predictions, error_metrics=None):
                 return html.Div(f"Error fetching financial statements: {e}", style={"color": "red", "textAlign": "center"})
         # News tab: Coming Soon
         if tab == "tab-news":
-            try:
-                news = fetch_news_yfinance(ticker_val)
-                if news:
-                    news_items = []
-                    for item in news[:10]:
-                        title = item.get('title', 'No Title')
-                        link = item.get('link', '#')
-                        publisher = item.get('publisher', '')
-                        pub_time = item.get('providerPublishTime', '')
-                        # Sentiment analysis
-                        sentiment = TextBlob(title).sentiment.polarity if title else 0
-                        if sentiment > 0.1:
-                            sentiment_label = "Positive"
-                            sentiment_color = "#27ae60"
-                        elif sentiment < -0.1:
-                            sentiment_label = "Negative"
-                            sentiment_color = "#c0392b"
-                        else:
-                            sentiment_label = "Neutral"
-                            sentiment_color = "#f39c12"
-                        news_items.append(
-                            html.Li([
-                                html.A(title, href=link, target="_blank"),
-                                html.Br(),
-                                html.Span(publisher, style={"color": "#888", "fontSize": 13}),
-                                html.Br(),
-                                html.Span(pub_time, style={"color": "#aaa", "fontSize": 12}),
-                                html.Br(),
-                                html.Span(f"Sentiment: {sentiment_label} ({sentiment:.2f})", style={"color": sentiment_color, "fontSize": 14, "fontWeight": "bold"})
-                            ], style={"marginBottom": 18, "background": "#f8f9fa", "borderRadius": 6, "padding": 10, "boxShadow": "0 1px 3px #eee"})
-                        )
-                    return html.Div([
-                        html.H3(f"Latest News & Sentiment for {ticker_val}", style={"textAlign": "center", "color": "#2c3e50"}),
-                        html.Ul(news_items)
-                    ])
-                else:
-                    return html.Div("No news found for this ticker.", style={"textAlign": "center", "color": "#888", "marginTop": 40})
-            except Exception as e:
-                return html.Div(f"Error fetching news: {e}", style={"color": "red", "textAlign": "center"})
+            return html.Div("Coming Soon", style={"textAlign": "center", "color": "#888", "fontSize": 24, "marginTop": 60})
         # Fundamentals tab
         if tab == "tab-fundamentals":
             try:
-                stock = yf.Ticker(ticker_val)
+                stock = yf.Ticker(main_ticker)
                 info = stock.info
                 keys = [
                     ("Symbol", "symbol"),
@@ -843,7 +961,7 @@ def create_dashboard(data, ticker, predictions, error_metrics=None):
                 ]
                 rows = [html.Tr([html.Td(label), html.Td(info.get(key, "-"))]) for label, key in keys]
                 return html.Div([
-                    html.H3(f"Fundamentals for {ticker_val}", style={"textAlign": "center", "color": "#2c3e50"}),
+                    html.H3(f"Fundamentals for {main_ticker}", style={"textAlign": "center", "color": "#2c3e50"}),
                     html.Table([
                         html.Tbody(rows)
                     ], style={"margin": "0 auto", "fontSize": 16, "background": "#f8f9fa", "borderRadius": 6, "boxShadow": "0 1px 3px #eee", "padding": 10})
@@ -853,8 +971,7 @@ def create_dashboard(data, ticker, predictions, error_metrics=None):
         # Market Sentiment tab: summary and chart
         if tab == "tab-sentiment":
             try:
-                # Fetch and process data for technical sentiment
-                data = fetch_stock_data(ticker_val, start_date_val, end_date_val)
+                data = fetch_stock_data(main_ticker, start_date_val, end_date_val)
                 if data.empty:
                     return html.Div("No data found for the given ticker or date range.", style={"color": "red", "textAlign": "center", "marginTop": 40})
                 data = calculate_indicators(data)
@@ -946,7 +1063,7 @@ def create_dashboard(data, ticker, predictions, error_metrics=None):
                     ("ATR", "Higher ATR = higher volatility. No strict 'ideal', but compare to historical ATR for context.")
                 ]
                 return html.Div([
-                    html.H3(f"Market Sentiment for {ticker_val}", style={"textAlign": "center", "color": color}),
+                    html.H3(f"Market Sentiment for {main_ticker}", style={"textAlign": "center", "color": color}),
                     html.Div(f"Final Verdict: {final_verdict}", style={"textAlign": "center", "fontSize": 22, "color": color, "marginTop": 20, "fontWeight": "bold"}),
                     html.Ul([
                         html.Li(detail, style={"fontSize": 16, "color": "#555", "marginBottom": 6}) for detail in details
