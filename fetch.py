@@ -24,8 +24,8 @@ import pandas as pd  # Library for handling data in tables (like Excel)
 import dash  # Library for creating a web-based dashboard
 from dash import dcc, html  # Components for the Dash dashboard
 import plotly.graph_objects as go  # For creating interactive graphs
-import torch  # PyTorch for building and training the prediction model
-import torch.nn as nn  # For creating neural network layers
+# import torch  # PyTorch for building and training the prediction model
+# import torch.nn as nn  # For creating neural network layers
 from sklearn.preprocessing import MinMaxScaler  # For scaling data (e.g., making numbers smaller)
 from rich.console import Console  # For printing colorful and formatted outputs in the terminal
 from rich.table import Table  # For displaying data in a table format in the terminal
@@ -39,18 +39,18 @@ console = Console()  # A console object to print colorful messages
 scaler = MinMaxScaler()  # A scaler object to normalize data (e.g., make values between 0 and 1)
 
 # Defining a neural network for predicting stock prices
-class StockPredictor(nn.Module):
-    def __init__(self, input_size, hidden_size, output_size):
-        """Set up the layers of the neural network."""
-        super(StockPredictor, self).__init__()
-        self.hidden_layer = nn.Linear(input_size, hidden_size)  # Hidden layer
-        self.output_layer = nn.Linear(hidden_size, output_size)  # Output layer
-
-    def forward(self, x):
-        """Defines how the input data flows through the network."""
-        x = torch.relu(self.hidden_layer(x))  # Apply activation function to hidden layer
-        x = self.output_layer(x)  # Compute the final output
-        return x
+# class StockPredictor(nn.Module):
+#     def __init__(self, input_size, hidden_size, output_size):
+#         """Set up the layers of the neural network."""
+#         super(StockPredictor, self).__init__()
+#         self.hidden_layer = nn.Linear(input_size, hidden_size)  # Hidden layer
+#         self.output_layer = nn.Linear(hidden_size, output_size)  # Output layer
+#
+#     def forward(self, x):
+#         """Defines how the input data flows through the network."""
+#         x = torch.relu(self.hidden_layer(x))  # Apply activation function to hidden layer
+#         x = self.output_layer(x)  # Compute the final output
+#         return x
 
 
 def fetch_stock_data(ticker, start_date=None, end_date=None):
@@ -225,160 +225,162 @@ def predict_stock_prices(data):
         X = scaled_features[:, [i for i in range(len(features)) if features[i] != 'Close']]  # Exclude 'Close' as feature
         y = scaled_features[:, features.index('Close')]    # Target (scaled Close price)
         # Convert to PyTorch tensors
-        X_tensor = torch.tensor(X, dtype=torch.float32)
-        y_tensor = torch.tensor(y, dtype=torch.float32).unsqueeze(1)
+        # X_tensor = torch.tensor(X, dtype=torch.float32)
+        # y_tensor = torch.tensor(y, dtype=torch.float32).unsqueeze(1)
         # Train/Test split
-        train_size = int(len(X_tensor) * 0.8)
-        X_train, X_test = X_tensor[:train_size], X_tensor[train_size:]
-        y_train, y_test = y_tensor[:train_size], y_tensor[train_size:]
+        train_size = int(len(X) * 0.8)
+        X_train, X_test = X[:train_size], X[train_size:]
+        y_train, y_test = y[:train_size], y[train_size:]
         # Improved model with Dropout and LeakyReLU
-        class ImprovedStockPredictor(nn.Module):
-            def __init__(self, input_size, hidden_size, output_size):
-                super().__init__()
-                self.hidden_layer1 = nn.Linear(input_size, hidden_size)
-                self.dropout = nn.Dropout(0.2)
-                self.hidden_layer2 = nn.Linear(hidden_size, hidden_size)
-                self.output_layer = nn.Linear(hidden_size, output_size)
-                self.leaky_relu = nn.LeakyReLU()
-            def forward(self, x):
-                x = self.leaky_relu(self.hidden_layer1(x))
-                x = self.dropout(x)
-                x = self.leaky_relu(self.hidden_layer2(x))
-                x = self.output_layer(x)
-                return x
-        model = ImprovedStockPredictor(input_size=X_train.shape[1], hidden_size=128, output_size=1)
-        criterion = nn.MSELoss()
-        optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-        # Train the model
-        console.print("[cyan]Training the neural network...[/cyan]")
-        best_val_loss = float('inf')
-        patience = 50
-        patience_counter = 0
-        for epoch in range(1000):
-            model.train()
-            optimizer.zero_grad()
-            predictions = model(X_train)
-            loss = criterion(predictions, y_train)
-            loss.backward()
-            optimizer.step()
-            # Early stopping on validation loss
-            model.eval()
-            with torch.no_grad():
-                val_predictions = model(X_test)
-                val_loss = torch.sqrt(criterion(val_predictions, y_test))
-                if val_loss.item() < best_val_loss:
-                    best_val_loss = val_loss.item()
-                    patience_counter = 0
-                else:
-                    patience_counter += 1
-                if patience_counter > patience:
-                    console.print(f"Early stopping at epoch {epoch+1}")
-                    break
-            if (epoch + 1) % 50 == 0:
-                console.print(f"Epoch {epoch + 1}/1000 - Loss: {loss.item():.4f} - Val RMSE: {val_loss.item():.4f}")
-        # Calculate error metrics
-        model.eval()
-        with torch.no_grad():
-            test_preds = model(X_test).squeeze().numpy()
-            test_true = y_test.squeeze().numpy()
-            rmse = np.sqrt(np.mean((test_preds - test_true) ** 2))
-            mae = np.mean(np.abs(test_preds - test_true))
-        # Predict future prices
-        # --- Recursive walk-forward prediction for next 10 days ---
-        future_dates = pd.date_range(start=data.index[-1] + pd.Timedelta(days=1), periods=10, freq='D')
-        walk_data = data.copy()
-        preds = []
-        last_valid_close = walk_data['Close'].iloc[-1]
-        for i, date in enumerate(future_dates):
-            # Build feature vector using latest indicators
-            days = (date - walk_data.index[0]).days
-            prev_close_1 = walk_data['Close'].iloc[-1]
-            prev_close_3 = walk_data['Close'].iloc[-3] if len(walk_data) >= 3 else walk_data['Close'].iloc[-1]
-            prev_close_5 = walk_data['Close'].iloc[-5] if len(walk_data) >= 5 else walk_data['Close'].iloc[-1]
-            prev_close_10 = walk_data['Close'].iloc[-10] if len(walk_data) >= 10 else walk_data['Close'].iloc[-1]
-            pct_change = walk_data['Close'].pct_change(fill_method=None).iloc[-1]
-            if np.isnan(pct_change) or np.isinf(pct_change):
-                pct_change = 0.0
-            vol_change = walk_data['Volume'].pct_change(fill_method=None).iloc[-1] if 'Volume' in walk_data.columns else 0
-            if np.isnan(vol_change) or np.isinf(vol_change):
-                vol_change = 0.0
-            momentum = walk_data['Close'].iloc[-1] - walk_data['Close'].iloc[-11] if len(walk_data) >= 11 else 0
-            day_of_week = date.dayofweek
-            feature_vector = [
-                days,
-                0,
-                walk_data['EMA_20'].iloc[-1],
-                walk_data['EMA_50'].iloc[-1],
-                walk_data['RSI'].iloc[-1],
-                walk_data['Upper_Band'].iloc[-1],
-                walk_data['Lower_Band'].iloc[-1],
-                walk_data['MACD'].iloc[-1],
-                walk_data['MACD_Signal'].iloc[-1],
-                walk_data['%K'].iloc[-1],
-                walk_data['%D'].iloc[-1],
-                walk_data['ATR'].iloc[-1],
-                pct_change,
-                vol_change,
-                momentum,
-                prev_close_1,
-                prev_close_3,
-                prev_close_5,
-                prev_close_10,
-                day_of_week
-            ]
-            fv_check = feature_vector[:]
-            fv_check[1] = walk_data['Close'].iloc[-1]
-            if any([np.isnan(x) or np.isinf(x) for x in fv_check]):
-                pred_close = last_valid_close
-            else:
-                try:
-                    scaled = scaler.transform([feature_vector])
-                    X_pred = np.delete(scaled, features.index('Close'), axis=1)
-                    X_pred_tensor = torch.tensor(X_pred, dtype=torch.float32)
-                    pred_scaled = model(X_pred_tensor).detach().numpy().flatten()[0]
-                    scaled[0, features.index('Close')] = pred_scaled
-                    inv = scaler.inverse_transform(scaled)
-                    pred_close = inv[0, features.index('Close')]
-                    if np.isnan(pred_close) or np.isinf(pred_close):
-                        pred_close = last_valid_close
-                except Exception as e:
-                    pred_close = last_valid_close
-            preds.append(pred_close)
-            last_valid_close = pred_close
-            # Prepare new row for walk_data
-            new_row = {
-                'Days': days,
-                'Close': pred_close,
-                'EMA_20': walk_data['EMA_20'].iloc[-1],
-                'EMA_50': walk_data['EMA_50'].iloc[-1],
-                'RSI': walk_data['RSI'].iloc[-1],
-                'Upper_Band': walk_data['Upper_Band'].iloc[-1],
-                'Lower_Band': walk_data['Lower_Band'].iloc[-1],
-                'MACD': walk_data['MACD'].iloc[-1],
-                'MACD_Signal': walk_data['MACD_Signal'].iloc[-1],
-                '%K': walk_data['%K'].iloc[-1],
-                '%D': walk_data['%D'].iloc[-1],
-                'ATR': walk_data['ATR'].iloc[-1],
-                'Pct_Change': pct_change,
-                'Volume_Change': vol_change,
-                'Momentum': momentum,
-                'Prev_Close_1': prev_close_1,
-                'Prev_Close_3': prev_close_3,
-                'Prev_Close_5': prev_close_5,
-                'Prev_Close_10': prev_close_10,
-                'DayOfWeek': day_of_week,
-                'Volume': walk_data['Volume'].iloc[-1] if 'Volume' in walk_data.columns else 0
-            }
-            walk_data = pd.concat([walk_data, pd.DataFrame([new_row], index=[date])], sort=False)
-            # Recalculate indicators after appending new row
-            walk_data = calculate_indicators(walk_data)
-        preds = [x if not (np.isnan(x) or np.isinf(x)) else last_valid_close for x in preds]
-        # If all predictions are the same, warn but do not alter predictions
-        if len(set(np.round(preds, 6))) == 1:
-            console.print("[bold yellow]Warning: All predicted prices are the same. Model may not be learning or features are not updating.\nTry using a different ticker or check your model/data.[/bold yellow]")
-        predictions = pd.DataFrame({'Date': future_dates, 'Predicted Price': preds})
-        error_metrics = {'RMSE': float(rmse), 'MAE': float(mae)}
-        print("Predictions head:", predictions.head())
+        # class ImprovedStockPredictor(nn.Module):
+        #     def __init__(self, input_size, hidden_size, output_size):
+        #         super().__init__()
+        #         self.hidden_layer1 = nn.Linear(input_size, hidden_size)
+        #         self.dropout = nn.Dropout(0.2)
+        #         self.hidden_layer2 = nn.Linear(hidden_size, hidden_size)
+        #         self.output_layer = nn.Linear(hidden_size, output_size)
+        #         self.leaky_relu = nn.LeakyReLU()
+        #     def forward(self, x):
+        #         x = self.leaky_relu(self.hidden_layer1(x))
+        #         x = self.dropout(x)
+        #         x = self.leaky_relu(self.hidden_layer2(x))
+        #         x = self.output_layer(x)
+        #         return x
+        # model = ImprovedStockPredictor(input_size=X_train.shape[1], hidden_size=128, output_size=1)
+        # criterion = nn.MSELoss()
+        # optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+        # # Train the model
+        # console.print("[cyan]Training the neural network...[/cyan]")
+        # best_val_loss = float('inf')
+        # patience = 50
+        # patience_counter = 0
+        # for epoch in range(1000):
+        #     model.train()
+        #     optimizer.zero_grad()
+        #     predictions = model(X_train)
+        #     loss = criterion(predictions, y_train)
+        #     loss.backward()
+        #     optimizer.step()
+        #     # Early stopping on validation loss
+        #     model.eval()
+        #     with torch.no_grad():
+        #         val_predictions = model(X_test)
+        #         val_loss = torch.sqrt(criterion(val_predictions, y_test))
+        #         if val_loss.item() < best_val_loss:
+        #             best_val_loss = val_loss.item()
+        #             patience_counter = 0
+        #         else:
+        #             patience_counter += 1
+        #         if patience_counter > patience:
+        #             console.print(f"Early stopping at epoch {epoch+1}")
+        #             break
+        #     if (epoch + 1) % 50 == 0:
+        #         console.print(f"Epoch {epoch + 1}/1000 - Loss: {loss.item():.4f} - Val RMSE: {val_loss.item():.4f}")
+        # # Calculate error metrics
+        # model.eval()
+        # with torch.no_grad():
+        #     test_preds = model(X_test).squeeze().numpy()
+        #     test_true = y_test.squeeze().numpy()
+        #     rmse = np.sqrt(np.mean((test_preds - test_true) ** 2))
+        #     mae = np.mean(np.abs(test_preds - test_true))
+        # # Predict future prices
+        # # --- Recursive walk-forward prediction for next 10 days ---
+        # future_dates = pd.date_range(start=data.index[-1] + pd.Timedelta(days=1), periods=10, freq='D')
+        # walk_data = data.copy()
+        # preds = []
+        # last_valid_close = walk_data['Close'].iloc[-1]
+        # for i, date in enumerate(future_dates):
+        #     # Build feature vector using latest indicators
+        #     days = (date - walk_data.index[0]).days
+        #     prev_close_1 = walk_data['Close'].iloc[-1]
+        #     prev_close_3 = walk_data['Close'].iloc[-3] if len(walk_data) >= 3 else walk_data['Close'].iloc[-1]
+        #     prev_close_5 = walk_data['Close'].iloc[-5] if len(walk_data) >= 5 else walk_data['Close'].iloc[-1]
+        #     prev_close_10 = walk_data['Close'].iloc[-10] if len(walk_data) >= 10 else walk_data['Close'].iloc[-1]
+        #     pct_change = walk_data['Close'].pct_change(fill_method=None).iloc[-1]
+        #     if np.isnan(pct_change) or np.isinf(pct_change):
+        #         pct_change = 0.0
+        #     vol_change = walk_data['Volume'].pct_change(fill_method=None).iloc[-1] if 'Volume' in walk_data.columns else 0
+        #     if np.isnan(vol_change) or np.isinf(vol_change):
+        #         vol_change = 0.0
+        #     momentum = walk_data['Close'].iloc[-1] - walk_data['Close'].iloc[-11] if len(walk_data) >= 11 else 0
+        #     day_of_week = date.dayofweek
+        #     feature_vector = [
+        #         days,
+        #         0,
+        #         walk_data['EMA_20'].iloc[-1],
+        #         walk_data['EMA_50'].iloc[-1],
+        #         walk_data['RSI'].iloc[-1],
+        #         walk_data['Upper_Band'].iloc[-1],
+        #         walk_data['Lower_Band'].iloc[-1],
+        #         walk_data['MACD'].iloc[-1],
+        #         walk_data['MACD_Signal'].iloc[-1],
+        #         walk_data['%K'].iloc[-1],
+        #         walk_data['%D'].iloc[-1],
+        #         walk_data['ATR'].iloc[-1],
+        #         pct_change,
+        #         vol_change,
+        #         momentum,
+        #         prev_close_1,
+        #         prev_close_3,
+        #         prev_close_5,
+        #         prev_close_10,
+        #         day_of_week
+        #     ]
+        #     fv_check = feature_vector[:]
+        #     fv_check[1] = walk_data['Close'].iloc[-1]
+        #     if any([np.isnan(x) or np.isinf(x) for x in fv_check]):
+        #         pred_close = last_valid_close
+        #     else:
+        #         try:
+        #             scaled = scaler.transform([feature_vector])
+        #             X_pred = np.delete(scaled, features.index('Close'), axis=1)
+        #             X_pred_tensor = torch.tensor(X_pred, dtype=torch.float32)
+        #             pred_scaled = model(X_pred_tensor).detach().numpy().flatten()[0]
+        #             scaled[0, features.index('Close')] = pred_scaled
+        #             inv = scaler.inverse_transform(scaled)
+        #             pred_close = inv[0, features.index('Close')]
+        #             if np.isnan(pred_close) or np.isinf(pred_close):
+        #                 pred_close = last_valid_close
+        #         except Exception as e:
+        #             pred_close = last_valid_close
+        #     preds.append(pred_close)
+        #     last_valid_close = pred_close
+        #     # Prepare new row for walk_data
+        #     new_row = {
+        #         'Days': days,
+        #         'Close': pred_close,
+        #         'EMA_20': walk_data['EMA_20'].iloc[-1],
+        #         'EMA_50': walk_data['EMA_50'].iloc[-1],
+        #         'RSI': walk_data['RSI'].iloc[-1],
+        #         'Upper_Band': walk_data['Upper_Band'].iloc[-1],
+        #         'Lower_Band': walk_data['Lower_Band'].iloc[-1],
+        #         'MACD': walk_data['MACD'].iloc[-1],
+        #         'MACD_Signal': walk_data['MACD_Signal'].iloc[-1],
+        #         '%K': walk_data['%K'].iloc[-1],
+        #         '%D': walk_data['%D'].iloc[-1],
+        #         'ATR': walk_data['ATR'].iloc[-1],
+        #         'Pct_Change': pct_change,
+        #         'Volume_Change': vol_change,
+        #         'Momentum': momentum,
+        #         'Prev_Close_1': prev_close_1,
+        #         'Prev_Close_3': prev_close_3,
+        #         'Prev_Close_5': prev_close_5,
+        #         'Prev_Close_10': prev_close_10,
+        #         'DayOfWeek': day_of_week,
+        #         'Volume': walk_data['Volume'].iloc[-1] if 'Volume' in walk_data.columns else 0
+        #     }
+        #     walk_data = pd.concat([walk_data, pd.DataFrame([new_row], index=[date])], sort=False)
+        #     # Recalculate indicators after appending new row
+        #     walk_data = calculate_indicators(walk_data)
+        # preds = [x if not (np.isnan(x) or np.isinf(x)) else last_valid_close for x in preds]
+        # # If all predictions are the same, warn but do not alter predictions
+        # if len(set(np.round(preds, 6))) == 1:
+        #     console.print("[bold yellow]Warning: All predicted prices are the same. Model may not be learning or features are not updating.\nTry using a different ticker or check your model/data.[/bold yellow]")
+        # predictions = pd.DataFrame({'Date': future_dates, 'Predicted Price': preds})
+        # error_metrics = {'RMSE': float(rmse), 'MAE': float(mae)}
+        # print("Predictions head:", predictions.head())
+        predictions = pd.DataFrame()
+        error_metrics = {'RMSE': None, 'MAE': None}
         return predictions, error_metrics
     except Exception as e:
         console.print(f"[bold red]Error in prediction: {e}[/bold red]")
