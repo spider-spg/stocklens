@@ -23,6 +23,10 @@ import yfinance as yf  # Library for fetching stock data
 import pandas as pd  # Library for handling data in tables (like Excel)
 import dash  # Library for creating a web-based dashboard
 from dash import dcc, html  # Components for the Dash dashboard
+import requests
+from bs4 import BeautifulSoup
+from datetime import datetime, timedelta
+from textblob import TextBlob
 import plotly.graph_objects as go  # For creating interactive graphs
 # import torch  # PyTorch for building and training the prediction model
 # import torch.nn as nn  # For creating neural network layers
@@ -501,36 +505,49 @@ def create_dashboard(data, ticker, predictions, error_metrics=None):
     </html>
     '''
 
-    # Add buy/sell signals based on EMA
-    data['Buy_Signal'] = (data['Close'] > data['EMA_20']) & (data['Close'].shift(1) <= data['EMA_20'])
-    data['Sell_Signal'] = (data['Close'] < data['EMA_20']) & (data['Close'].shift(1) >= data['EMA_20'])
+    # Add buy/sell signals based on EMA, only if data is not empty and has required columns
+    if not data.empty and 'Close' in data.columns and 'EMA_20' in data.columns:
+        data['Buy_Signal'] = (data['Close'] > data['EMA_20']) & (data['Close'].shift(1) <= data['EMA_20'])
+        data['Sell_Signal'] = (data['Close'] < data['EMA_20']) & (data['Close'].shift(1) >= data['EMA_20'])
+    else:
+        data['Buy_Signal'] = False
+        data['Sell_Signal'] = False
 
-    # Create a graph with Plotly
+    # Create a graph with Plotly only if data is not empty and has required columns
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=data.index, y=data['Close'], name="Close Price"))
-    fig.add_trace(go.Scatter(x=data.index, y=data['EMA_20'], name="EMA 20", line=dict(dash="dash")))
-    fig.add_trace(go.Scatter(x=data.index, y=data['Upper_Band'], name="Upper Bollinger Band", line=dict(dash="dot")))
-    fig.add_trace(go.Scatter(x=data.index, y=data['Lower_Band'], name="Lower Bollinger Band", line=dict(dash="dot")))
-    fig.add_trace(go.Scatter(
-        x=data[data['Buy_Signal']].index,
-        y=data[data['Buy_Signal']]['Close'],
-        mode='markers',
-        name='Buy Signal',
-        marker=dict(symbol='triangle-up', color='green', size=10)
-    ))
-    fig.add_trace(go.Scatter(
-        x=data[data['Sell_Signal']].index,
-        y=data[data['Sell_Signal']]['Close'],
-        mode='markers',
-        name='Sell Signal',
-        marker=dict(symbol='triangle-down', color='red', size=10)
-    ))
-    fig.update_layout(
-        title=f"{ticker} Stock Analysis with Indicators and Signals",
-        xaxis_title="Date",
-        yaxis_title="Price",
-        legend_title="Indicators"
-    )
+    required_cols = ['Close', 'EMA_20', 'Upper_Band', 'Lower_Band']
+    if not data.empty and all(col in data.columns for col in required_cols):
+        fig.add_trace(go.Scatter(x=data.index, y=data['Close'], name="Close Price"))
+        fig.add_trace(go.Scatter(x=data.index, y=data['EMA_20'], name="EMA 20", line=dict(dash="dash")))
+        fig.add_trace(go.Scatter(x=data.index, y=data['Upper_Band'], name="Upper Bollinger Band", line=dict(dash="dot")))
+        fig.add_trace(go.Scatter(x=data.index, y=data['Lower_Band'], name="Lower Bollinger Band", line=dict(dash="dot")))
+        fig.add_trace(go.Scatter(
+            x=data[data['Buy_Signal']].index if 'Buy_Signal' in data.columns else [],
+            y=data[data['Buy_Signal']]['Close'] if 'Buy_Signal' in data.columns else [],
+            mode='markers',
+            name='Buy Signal',
+            marker=dict(symbol='triangle-up', color='green', size=10)
+        ))
+        fig.add_trace(go.Scatter(
+            x=data[data['Sell_Signal']].index if 'Sell_Signal' in data.columns else [],
+            y=data[data['Sell_Signal']]['Close'] if 'Sell_Signal' in data.columns else [],
+            mode='markers',
+            name='Sell Signal',
+            marker=dict(symbol='triangle-down', color='red', size=10)
+        ))
+        fig.update_layout(
+            title=f"{ticker} Stock Analysis with Indicators and Signals",
+            xaxis_title="Date",
+            yaxis_title="Price",
+            legend_title="Indicators"
+        )
+    else:
+        fig.add_annotation(text="No valid data to display chart.",
+                           xref="paper", yref="paper",
+                           x=0.5, y=0.5, showarrow=False,
+                           font=dict(size=18, color="red"))
+        fig.update_layout(title="No Data", xaxis_title="Date", yaxis_title="Price")
+    # Removed stray code that caused SyntaxError
 
     # Add predictions to the dashboard
     if predictions is not None and not predictions.empty and 'Date' in predictions.columns and 'Predicted Price' in predictions.columns:
@@ -707,10 +724,17 @@ def create_dashboard(data, ticker, predictions, error_metrics=None):
             dcc.Tab(label="News", value="tab-news"),
             dcc.Tab(label="Fundamentals", value="tab-fundamentals"),
             dcc.Tab(label="Financials", value="tab-financials"),
+            dcc.Tab(label="Corporate Actions", value="tab-corpactions"),
             dcc.Tab(label="Market Sentiment", value="tab-sentiment"),
         ],
         style={"fontSize": "clamp(1rem, 3vw, 1.2rem)", "overflowX": "auto"}),
-        html.Div(id="dashboard-content"),
+        dcc.Loading(
+            id="dashboard-loading",
+            type="circle",
+            color="#1565c0",
+            fullscreen=False,
+            children=html.Div(id="dashboard-content")
+        ),
         # dcc.Download(id="download-data") removed
         education_section,
         disclaimer_section,
@@ -762,6 +786,104 @@ def create_dashboard(data, ticker, predictions, error_metrics=None):
          State("end-date", "date")]
     )
     def update_dashboard(n_clicks, tab, ticker_val, start_date_val, end_date_val):
+        # Support comma-separated tickers for peer comparison
+        tickers = [t.strip() for t in ticker_val.split(",") if t.strip()] if ticker_val else []
+        def normalize_ticker(t):
+            t = t.upper()
+            if "." in t:
+                return t
+            us_tickers = {"AAPL", "MSFT", "GOOG", "GOOGL", "AMZN", "TSLA", "META", "NVDA", "NFLX", "BRK.B", "JPM", "V", "UNH", "HD", "PG", "MA", "DIS", "BAC", "XOM", "PFE", "WMT", "INTC", "CSCO", "T", "VZ", "KO", "PEP", "MRK", "CVX", "ABBV", "MCD", "COST", "ADBE", "CRM", "ABT", "CMCSA", "TMO", "ACN", "AVGO", "QCOM", "TXN", "LIN", "NEE", "DHR", "NKE", "MDT", "HON", "UNP", "AMGN", "LOW", "MS", "GS", "BLK", "AXP", "BA", "CAT", "GE", "IBM", "ORCL", "SBUX", "LMT", "MMM", "SPGI", "BKNG", "ISRG", "NOW", "PLD", "ZTS", "GILD", "SYK", "MDLZ", "MO", "TGT", "DE", "DUK", "SO", "USB", "C", "FDX", "GM", "F", "DAL", "UAL", "AAL", "UAL", "UAL"}
+            if t in us_tickers:
+                return t
+            return t + ".NS"
+        norm_tickers = [normalize_ticker(t) for t in tickers]
+        main_ticker = norm_tickers[0] if norm_tickers else "AAPL"
+        # Corporate Actions Tab (yfinance)
+        if tab == "tab-corpactions":
+            try:
+                stock = yf.Ticker(main_ticker)
+                dividends = stock.dividends
+                splits = stock.splits
+                # Format Dividends: last 6 entries, only date (no time), no timestamp
+                def format_dividends_table(dividends):
+                    if dividends is None or dividends.empty:
+                        return html.Div("No Dividends data available.", style={"color": "#888", "fontSize": 15, "marginBottom": 18})
+                    df = dividends.copy()
+                    df = df.tail(10)
+                    df = df.reset_index()
+                    df = df.sort_values('Date', ascending=False).reset_index(drop=True)
+                    df['Date'] = df['Date'].apply(lambda d: d.strftime('%d-%m-%Y'))
+                    table_header = [html.Th("Date", style={"border": "1px solid #ccc", "padding": "8px", "background": "#e9ecef"}), html.Th("Dividend", style={"border": "1px solid #ccc", "padding": "8px", "background": "#e9ecef"})]
+                    table_rows = [html.Tr([
+                        html.Td(row['Date'], style={"border": "1px solid #ccc", "padding": "8px"}),
+                        html.Td(f"₹{row[dividends.name]:.2f}", style={"border": "1px solid #ccc", "padding": "8px"})
+                    ]) for _, row in df.iterrows()]
+                    return html.Div([
+                        html.H4("Dividends (Last 10 )", style={"color": "#1565c0", "marginTop": 18, "marginBottom": 8}),
+                        html.Table([
+                            html.Thead(html.Tr(table_header)),
+                            html.Tbody(table_rows)
+                        ], style={
+                            "margin": "0 auto",
+                            "fontSize": 15,
+                            "background": "#f8f9fa",
+                            "borderRadius": 6,
+                            "boxShadow": "0 1px 3px #eee",
+                            "padding": 10,
+                            "width": "100%",
+                            "maxWidth": 700,
+                            "borderCollapse": "collapse",
+                            "border": "1px solid #ccc"
+                        })
+                    ])
+                # Format Splits: all entries, show as ratio, only date
+                def format_splits_table(splits):
+                    if splits is None or splits.empty:
+                        return html.Div("No Stock Splits data available.", style={"color": "#888", "fontSize": 15, "marginBottom": 18})
+                    df = splits.copy()
+                    df = df[df != 1]  # Only show actual splits
+                    if df.empty:
+                        return html.Div("No Stock Splits data available.", style={"color": "#888", "fontSize": 15, "marginBottom": 18})
+                    df = df.reset_index()
+                    df = df.sort_values('Date', ascending=False).reset_index(drop=True)
+                    df['Date'] = df['Date'].apply(lambda d: d.strftime('%d-%m-%Y'))
+                    table_header = [html.Th("Date", style={"border": "1px solid #ccc", "padding": "8px", "background": "#e9ecef"}), html.Th("Split Ratio", style={"border": "1px solid #ccc", "padding": "8px", "background": "#e9ecef"})]
+                    table_rows = []
+                    for _, row in df.iterrows():
+                        ratio = row[splits.name]
+                        if ratio > 1:
+                            split_str = f"{int(ratio)}:1"
+                        else:
+                            split_str = f"1:{int(1/ratio)}"
+                        table_rows.append(html.Tr([
+                            html.Td(row['Date'], style={"border": "1px solid #ccc", "padding": "8px"}),
+                            html.Td(split_str, style={"border": "1px solid #ccc", "padding": "8px"})
+                        ]))
+                    return html.Div([
+                        html.H4("Stock Splits ", style={"color": "#1565c0", "marginTop": 18, "marginBottom": 8}),
+                        html.Table([
+                            html.Thead(html.Tr(table_header)),
+                            html.Tbody(table_rows)
+                        ], style={
+                            "margin": "0 auto",
+                            "fontSize": 15,
+                            "background": "#f8f9fa",
+                            "borderRadius": 6,
+                            "boxShadow": "0 1px 3px #eee",
+                            "padding": 10,
+                            "width": "100%",
+                            "maxWidth": 700,
+                            "borderCollapse": "collapse",
+                            "border": "1px solid #ccc"
+                        })
+                    ])
+                return html.Div([
+                    html.H3(f"Corporate Actions for {main_ticker}", style={"textAlign": "center", "color": "#2c3e50", "marginTop": 20}),
+                    format_dividends_table(dividends),
+                    format_splits_table(splits)
+                ], style={"maxWidth": 900, "margin": "0 auto", "padding": "2vw"})
+            except Exception as e:
+                return html.Div(f"Error fetching corporate actions: {e}", style={"color": "red", "textAlign": "center"})
         if n_clicks == 0 or not ticker_val:
             return html.Div("Enter a ticker and click Submit to view analysis.", style={"textAlign": "center", "color": "#888", "marginTop": 40})
         # Support comma-separated tickers for peer comparison
@@ -938,9 +1060,278 @@ def create_dashboard(data, ticker, predictions, error_metrics=None):
                 ], style={"maxWidth": 900, "margin": "0 auto", "padding": "2vw"})
             except Exception as e:
                 return html.Div(f"Error fetching financial statements: {e}", style={"color": "red", "textAlign": "center"})
-        # News tab: Coming Soon
+        # News tab: Show only news analytics, not the main chart
         if tab == "tab-news":
-            return html.Div("Coming Soon", style={"textAlign": "center", "color": "#888", "fontSize": 24, "marginTop": 60})
+            try:
+                main_ticker = norm_tickers[0] if norm_tickers else "AAPL"
+                stock_name = tickers[0] if tickers else main_ticker
+                headlines = []
+                # Moneycontrol
+                try:
+                    mc_url = f"https://www.moneycontrol.com/news/tags/{stock_name.lower()}.html"
+                    mc_resp = requests.get(mc_url, headers={"User-Agent": "Mozilla/5.0"})
+                    mc_soup = BeautifulSoup(mc_resp.text, 'html.parser')
+                    mc_count = 0
+                    for item in mc_soup.select('li.clearfix'):
+                        if mc_count >= 4:
+                            break
+                        title_tag = item.find('h2')
+                        if not title_tag:
+                            continue
+                        title = title_tag.get_text(strip=True)
+                        link_tag = title_tag.find('a')
+                        link = link_tag['href'] if link_tag and link_tag.has_attr('href') else ''
+                        if link and not link.startswith('http'):
+                            link = 'https://www.moneycontrol.com' + link
+                        snippet_tag = item.find('p')
+                        snippet = snippet_tag.get_text(strip=True) if snippet_tag else ''
+                        date_tag = item.find('span', class_='dateline')
+                        pub_date = date_tag.get_text(strip=True) if date_tag else None
+                        headlines.append({'title': title, 'link': link, 'date': pub_date, 'snippet': snippet, 'source': 'Moneycontrol'})
+                        mc_count += 1
+                except Exception:
+                    pass
+                # Mint
+                try:
+                    mint_url = f"https://www.livemint.com/search-news?query={stock_name}"
+                    mint_resp = requests.get(mint_url, headers={"User-Agent": "Mozilla/5.0"})
+                    mint_soup = BeautifulSoup(mint_resp.text, 'html.parser')
+                    mint_count = 0
+                    for item in mint_soup.select('div.listingNewBox'):
+                        if mint_count >= 4:
+                            break
+                        title_tag = item.find('a', class_='headline')
+                        if not title_tag:
+                            # fallback: try h2
+                            title_tag = item.find('h2')
+                        if not title_tag:
+                            continue
+                        title = title_tag.get_text(strip=True)
+                        link = title_tag['href'] if title_tag.has_attr('href') else ''
+                        if link and not link.startswith('http'):
+                            link = 'https://www.livemint.com' + link
+                        snippet_tag = item.find('p')
+                        snippet = snippet_tag.get_text(strip=True) if snippet_tag else ''
+                        date_tag = item.find('span', class_='date')
+                        if not date_tag:
+                            date_tag = item.find('span', class_='lm-date')
+                        pub_date = date_tag.get_text(strip=True) if date_tag else None
+                        headlines.append({'title': title, 'link': link, 'date': pub_date, 'snippet': snippet, 'source': 'Mint'})
+                        mint_count += 1
+                except Exception:
+                    pass
+                # Economic Times
+                try:
+                    et_url = f"https://economictimes.indiatimes.com/topic/{stock_name}/news"
+                    et_resp = requests.get(et_url, headers={"User-Agent": "Mozilla/5.0"})
+                    et_soup = BeautifulSoup(et_resp.text, 'html.parser')
+                    et_count = 0
+                    for item in et_soup.select('div.eachStory'):
+                        if et_count >= 4:
+                            break
+                        title_tag = item.find('a', class_='title')
+                        if not title_tag:
+                            continue
+                        title = title_tag.get_text(strip=True)
+                        link = 'https://economictimes.indiatimes.com' + title_tag['href']
+                        snippet_tag = item.find('p')
+                        snippet = snippet_tag.get_text(strip=True) if snippet_tag else ''
+                        date_tag = item.find('time')
+                        if date_tag and date_tag.has_attr('data-time'):
+                            pub_date = date_tag['data-time']
+                        elif date_tag:
+                            pub_date = date_tag.get_text(strip=True)
+                        else:
+                            pub_date = None
+                        headlines.append({'title': title, 'link': link, 'date': pub_date, 'snippet': snippet, 'source': 'Economic Times'})
+                        et_count += 1
+                except Exception:
+                    pass
+                # Times of India
+                try:
+                    toi_url = f"https://timesofindia.indiatimes.com/topic/{stock_name}/news"
+                    toi_resp = requests.get(toi_url, headers={"User-Agent": "Mozilla/5.0"})
+                    toi_soup = BeautifulSoup(toi_resp.text, 'html.parser')
+                    toi_count = 0
+                    for item in toi_soup.select('div.story'):
+                        if toi_count >= 4:
+                            break
+                        title_tag = item.find('a')
+                        if not title_tag:
+                            continue
+                        title = title_tag.get_text(strip=True)
+                        link = 'https://timesofindia.indiatimes.com' + title_tag['href']
+                        snippet_tag = item.find('p')
+                        snippet = snippet_tag.get_text(strip=True) if snippet_tag else ''
+                        date_tag = item.find('span', class_='time')
+                        pub_date = date_tag.get_text(strip=True) if date_tag else None
+                        headlines.append({'title': title, 'link': link, 'date': pub_date, 'snippet': snippet, 'source': 'Times of India'})
+                        toi_count += 1
+                except Exception:
+                    pass
+                # Upstox
+                try:
+                    upstox_url = f"https://upstox.com/news/search/?q={stock_name}"
+                    upstox_resp = requests.get(upstox_url, headers={"User-Agent": "Mozilla/5.0"})
+                    upstox_soup = BeautifulSoup(upstox_resp.text, 'html.parser')
+                    upstox_count = 0
+                    for item in upstox_soup.select('div.news-card, div.news-card-item'):
+                        if upstox_count >= 4:
+                            break
+                        title_tag = item.find('a', class_='news-title')
+                        if not title_tag:
+                            continue
+                        title = title_tag.get_text(strip=True)
+                        link = title_tag['href'] if title_tag.has_attr('href') else ''
+                        if link and not link.startswith('http'):
+                            link = 'https://upstox.com' + link
+                        snippet_tag = item.find('div', class_='news-description')
+                        if not snippet_tag:
+                            snippet_tag = item.find('p')
+                        snippet = snippet_tag.get_text(strip=True) if snippet_tag else ''
+                        date_tag = item.find('span', class_='news-date')
+                        pub_date = date_tag.get_text(strip=True) if date_tag else None
+                        headlines.append({'title': title, 'link': link, 'date': pub_date, 'snippet': snippet, 'source': 'Upstox'})
+                        upstox_count += 1
+                except Exception:
+                    pass
+                # CNBC TV18
+                try:
+                    cnbc_url = f"https://www.cnbctv18.com/search/?query={stock_name}"
+                    cnbc_resp = requests.get(cnbc_url, headers={"User-Agent": "Mozilla/5.0"})
+                    cnbc_soup = BeautifulSoup(cnbc_resp.text, 'html.parser')
+                    cnbc_count = 0
+                    for item in cnbc_soup.select('div.search-story, div.search-result-story'):
+                        if cnbc_count >= 4:
+                            break
+                        title_tag = item.find('a', class_='search-title')
+                        if not title_tag:
+                            continue
+                        title = title_tag.get_text(strip=True)
+                        link = title_tag['href'] if title_tag.has_attr('href') else ''
+                        if link and not link.startswith('http'):
+                            link = 'https://www.cnbctv18.com' + link
+                        snippet_tag = item.find('div', class_='search-desc')
+                        if not snippet_tag:
+                            snippet_tag = item.find('p')
+                        snippet = snippet_tag.get_text(strip=True) if snippet_tag else ''
+                        date_tag = item.find('span', class_='search-date')
+                        pub_date = date_tag.get_text(strip=True) if date_tag else None
+                        headlines.append({'title': title, 'link': link, 'date': pub_date, 'snippet': snippet, 'source': 'CNBC TV18'})
+                        cnbc_count += 1
+                except Exception:
+                    pass
+                # Business Today
+                try:
+                    bt_url = f"https://www.businesstoday.in/search.jsp?searchword={stock_name}"
+                    bt_resp = requests.get(bt_url, headers={"User-Agent": "Mozilla/5.0"})
+                    bt_soup = BeautifulSoup(bt_resp.text, 'html.parser')
+                    bt_count = 0
+                    for item in bt_soup.select('div.widget-listing, div.search-result-card'):
+                        if bt_count >= 4:
+                            break
+                        title_tag = item.find('a', class_='widget-listing-title')
+                        if not title_tag:
+                            title_tag = item.find('a', class_='search-result-title')
+                        if not title_tag:
+                            continue
+                        title = title_tag.get_text(strip=True)
+                        link = title_tag['href'] if title_tag.has_attr('href') else ''
+                        if link and not link.startswith('http'):
+                            link = 'https://www.businesstoday.in' + link
+                        snippet_tag = item.find('div', class_='widget-listing-description')
+                        if not snippet_tag:
+                            snippet_tag = item.find('p')
+                        snippet = snippet_tag.get_text(strip=True) if snippet_tag else ''
+                        date_tag = item.find('span', class_='widget-listing-date')
+                        if not date_tag:
+                            date_tag = item.find('span', class_='search-result-date')
+                        pub_date = date_tag.get_text(strip=True) if date_tag else None
+                        headlines.append({'title': title, 'link': link, 'date': pub_date, 'snippet': snippet, 'source': 'Business Today'})
+                        bt_count += 1
+                except Exception:
+                    pass
+                # --- Enhanced News Analysis ---
+                volatility_keywords = ["crash", "surge", "volatile", "downgrade", "upgrade"]
+                sentiment_tags = ["bullish", "bearish", "selloff", "breakout", "buy rating", "sell rating", "downgrade", "upgrade"]
+                stock_name_lower = stock_name.lower()
+                total_mentions = 0
+                for news in headlines:
+                    text = (news['title'] + " " + news['snippet']).lower().strip()
+                    blob = TextBlob(text)
+                    news['sentiment'] = blob.sentiment.polarity
+                    # Relevance Score: 1 = direct mention, 0.5 = partial, 0 = not mentioned
+                    stock_name_lc = stock_name_lower.strip().lower()
+                    if stock_name_lc and stock_name_lc in text:
+                        news['relevance'] = 1.0
+                        total_mentions += 1
+                    elif stock_name_lc and any(word for word in stock_name_lc.split() if word in text):
+                        news['relevance'] = 0.5
+                        total_mentions += 1
+                    else:
+                        news['relevance'] = None
+                    # Volatility keyword detection (case-insensitive, robust)
+                    news['volatility_keywords'] = [kw for kw in volatility_keywords if kw.lower() in text]
+                    # Market sentiment tags (case-insensitive, robust)
+                    news['sentiment_tags'] = [tag for tag in sentiment_tags if tag.lower() in text]
+                # Aggregate sentiment
+                if headlines:
+                    avg_score = sum(n['sentiment'] for n in headlines) / len(headlines)
+                else:
+                    avg_score = 0
+                verdict = "Positive" if avg_score > 0.1 else "Negative" if avg_score < -0.1 else "Neutral"
+                color = "green" if avg_score > 0.1 else "red" if avg_score < -0.1 else "gray"
+                # Frequency of mentions (spike = high impact)
+                mention_freq = total_mentions
+                # Display
+                sentiment_explanation = html.Details([
+                    html.Summary("How to Interpret Sentiment & Relevance Scores", style={"fontWeight": "bold", "fontSize": 17, "color": "#1565c0", "cursor": "pointer", "marginTop": 30, "textAlign": "center"}),
+                    html.Div([
+                        html.P("The sentiment score ranges from -1 (very negative) to +1 (very positive). It is calculated using natural language processing on news headlines and snippets.", style={"fontSize": 15, "color": "#444", "marginBottom": 8}),
+                        html.P("Relevance Score: 1 = news is about your stock, 0.5 = partial/possible mention, 0 = not about your stock.", style={"fontSize": 15, "color": "#444", "marginBottom": 8}),
+                        html.P("Volatility Keywords: If present, news may indicate high volatility or major events.", style={"fontSize": 15, "color": "#444", "marginBottom": 8}),
+                        html.P("Market Sentiment Tags: Tags like 'bullish', 'bearish', 'breakout', etc. detected in news.", style={"fontSize": 15, "color": "#444", "marginBottom": 8}),
+                        html.P("Frequency of Mentions: More articles mentioning your stock in a short time = higher impact.", style={"fontSize": 15, "color": "#444", "marginBottom": 8}),
+                        html.Ul([
+                            html.Li("Scores above +0.1: Positive sentiment (good news dominates)", style={"color": "green", "fontSize": 15}),
+                            html.Li("Scores below -0.1: Negative sentiment (bad news dominates)", style={"color": "#c0392b", "fontSize": 15}),
+                            html.Li("Scores between -0.1 and +0.1: Neutral sentiment (mixed or balanced news)", style={"color": "#888", "fontSize": 15}),
+                        ], style={"marginLeft": 20, "marginBottom": 8}),
+                        html.P("An 'ideal' or 'best' sentiment score depends on your investment strategy:", style={"fontSize": 15, "color": "#444", "marginBottom": 4}),
+                        html.Ul([
+                            html.Li("For bullish investors: Higher positive scores (closer to +1) are preferred, indicating optimism in the news.", style={"color": "green", "fontSize": 15}),
+                            html.Li("For bearish or contrarian strategies: Negative scores (closer to -1) may signal opportunities if you expect a reversal.", style={"color": "#c0392b", "fontSize": 15}),
+                            html.Li("Neutral scores suggest a lack of strong news-driven momentum.", style={"color": "#888", "fontSize": 15}),
+                        ], style={"marginLeft": 20}),
+                        html.P("Always use sentiment and relevance as inputs among many. Sudden shifts in sentiment or a spike in mentions can precede price moves, but are not guarantees.", style={"fontSize": 14, "color": "#888", "marginTop": 8})
+                    ], style={"maxWidth": 700, "margin": "0 auto"})
+                ], open=False)
+                return html.Div([
+                    html.H3(f"News for {stock_name} (Moneycontrol, Mint, ET, TOI, Upstox, CNBC TV18, Business Today)", style={"textAlign": "center", "marginTop": 20}),
+                    html.Div([
+                        html.Span("Overall Sentiment Score: ", style={"fontWeight": "bold", "fontSize": 18}),
+                        html.Span(f"{avg_score:.2f} ", style={"color": color, "fontWeight": "bold", "fontSize": 18}),
+                        html.Span(f"({verdict})", style={"color": color, "fontWeight": "bold", "fontSize": 18}),
+                        html.Span(f" | Mentions: {mention_freq}", style={"color": "#888", "fontSize": 16, "marginLeft": 10})
+                    ], style={'textAlign': 'center', 'marginBottom': 10, 'marginTop': 10}),
+                    sentiment_explanation,
+                    html.Ul([
+                        html.Li([
+                            html.A(f"[{news['source']}] {news['title']}", href=news['link'], target="_blank"),
+                            html.Br(),
+                            html.Span(news['snippet'], style={'color': '#555', 'fontSize': 14}),
+                            html.Br(),
+                            html.Span(f"Sentiment: {news['sentiment']:.2f}", style={'color': 'green' if news['sentiment'] > 0 else 'red' if news['sentiment'] < 0 else 'gray', 'fontWeight': 'bold'}),
+                            (html.Span(f" | Relevance: {news['relevance']}", style={'color': '#2980b9', 'fontSize': 13, 'marginLeft': 8}) if news.get('relevance') is not None else None),
+                            (html.Span(f" | Volatility: {', '.join(news['volatility_keywords'])}", style={'color': '#e67e22', 'fontSize': 13, 'marginLeft': 8}) if news.get('volatility_keywords') else None),
+                            (html.Span(f" | Tags: {', '.join(news['sentiment_tags'])}", style={'color': '#8e44ad', 'fontSize': 13, 'marginLeft': 8}) if news.get('sentiment_tags') else None),
+                            html.Span(f" | Posted: {news['date'] if news['date'] else 'Unknown'}", style={'color': '#888', 'fontSize': 12})
+                        ], style={"marginBottom": 18, "background": "#f8f9fa", "padding": 10, "borderRadius": 6, "boxShadow": "0 1px 3px #eee"})
+                        for news in headlines if news.get('title') and news.get('source')
+                    ], style={"maxWidth": 800, "margin": "0 auto", "marginTop": 20})
+                ])
+            except Exception as e:
+                return html.Div(f"Error fetching news: {e}", style={"color": "red", "textAlign": "center"})
         # Fundamentals tab
         if tab == "tab-fundamentals":
             try:
@@ -1080,10 +1471,53 @@ def create_dashboard(data, ticker, predictions, error_metrics=None):
                 ])
             except Exception as e:
                 return html.Div(f"Error calculating sentiment: {e}", style={"color": "red", "textAlign": "center"})
+        # --- Chart Analysis Summary and Accuracy Note ---
+        # Generate a short summary of the analyzed chart
+        summary_lines = []
+        # Trend direction
+        if not data.empty and 'EMA_20' in data.columns:
+            last_close = data['Close'].iloc[-1]
+            last_ema = data['EMA_20'].iloc[-1]
+            if last_close > last_ema:
+                summary_lines.append("Current trend: Uptrend (price above EMA 20)")
+            elif last_close < last_ema:
+                summary_lines.append("Current trend: Downtrend (price below EMA 20)")
+            else:
+                summary_lines.append("Current trend: Sideways (price near EMA 20)")
+        # Volatility
+        if 'ATR' in data.columns:
+            atr = data['ATR'].iloc[-1]
+            summary_lines.append(f"Volatility (ATR): {atr:.2f}")
+        # Recent buy/sell signals
+        recent_signals = []
+        if 'Buy_Signal' in data.columns and data['Buy_Signal'].iloc[-1]:
+            recent_signals.append("Buy signal detected (price crossed above EMA 20)")
+        if 'Sell_Signal' in data.columns and data['Sell_Signal'].iloc[-1]:
+            recent_signals.append("Sell signal detected (price crossed below EMA 20)")
+        if recent_signals:
+            summary_lines.extend(recent_signals)
+        # Momentum
+        if 'Momentum' in data.columns:
+            momentum = data['Momentum'].iloc[-1]
+            if momentum > 0:
+                summary_lines.append("Momentum: Positive")
+            elif momentum < 0:
+                summary_lines.append("Momentum: Negative")
+            else:
+                summary_lines.append("Momentum: Neutral")
+        # Compose summary (only the summary of the chart analyzed)
+        chart_summary = html.Div([
+            html.Hr(),
+            html.Div([
+                html.Strong("Chart Summary: ", style={"color": "#1565c0", "fontSize": 16}),
+                html.Span(" ".join(summary_lines) if summary_lines else "No significant signals detected.", style={"color": "#555", "fontSize": 15})
+            ], style={"margin": "10px auto 0 auto", "textAlign": "center", "maxWidth": 700, "background": "#f0f4f8", "borderRadius": 6, "padding": 10, "boxShadow": "0 1px 3px #eee"})
+        ])
         # Default: Analysis tab
         return html.Div([
             dcc.Graph(figure=fig, style=graph_style),
             metrics_component,
+            chart_summary,
             html.H2("Predicted Prices for the Next 30 Days", style={"textAlign": "center", "color": "#34495e", "fontSize": "clamp(1.1rem, 4vw, 1.5rem)"}),
             prediction_component
         ])
@@ -1095,7 +1529,7 @@ def create_dashboard(data, ticker, predictions, error_metrics=None):
 # Default values for initial dashboard load
 server = None
 if __name__ != "__main__":
-    default_ticker = "AAPL"
+    default_ticker = ""
     default_data = fetch_stock_data(default_ticker)
     default_data = calculate_indicators(default_data)
     default_predictions, default_error_metrics = predict_stock_prices(default_data)
@@ -1103,7 +1537,7 @@ if __name__ != "__main__":
     server = app.server
 
 if __name__ == "__main__":
-    default_ticker = "AAPL"
+    default_ticker = ""
     default_data = fetch_stock_data(default_ticker)
     default_data = calculate_indicators(default_data)
     default_predictions, default_error_metrics = predict_stock_prices(default_data)
