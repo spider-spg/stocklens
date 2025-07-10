@@ -6,3 +6,6 @@ plotly
 numpy
 rich
 openpyxl
+requests
+beautifulsoup4
+textblob
