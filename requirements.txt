@@ -1,7 +1,6 @@
 yfinance
 pandas
 dash
-torch
 scikit-learn
 plotly
 numpy

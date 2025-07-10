@@ -399,7 +399,7 @@ def create_dashboard(data, ticker, predictions, error_metrics=None):
     app = dash.Dash(__name__)
     server = app.server  # Expose server for Azure
 
-    # Responsive meta tag for mobile
+    # Responsive meta tag for mobile and swipeable/collapsible enhancements
     app.index_string = '''
     <!DOCTYPE html>
     <html>
@@ -410,10 +410,8 @@ def create_dashboard(data, ticker, predictions, error_metrics=None):
             {%css%}
             <meta name="viewport" content="width=device-width, initial-scale=1">
             <style>
-                /* Responsive styles for mobile */
                 body { margin: 0; padding: 0; }
                 .dash-table-container { overflow-x: auto; }
-                /* Logo styles */
                 .stocklens-logo {
                     height: 150px;
                     margin-right: 25px;
@@ -425,7 +423,6 @@ def create_dashboard(data, ticker, predictions, error_metrics=None):
                     z-index: 10;
                     transition: all 0.3s;
                 }
-                /* Button styles */
                 button, .dash-button, .dash-spreadsheet-menu button {
                     background: linear-gradient(90deg, #2980b9 0%, #6dd5fa 100%);
                     color: #fff;
@@ -438,18 +435,66 @@ def create_dashboard(data, ticker, predictions, error_metrics=None):
                     box-shadow: 0 2px 8px rgba(41,128,185,0.08);
                     transition: background 0.2s, box-shadow 0.2s, transform 0.1s;
                 }
+                button:active, .dash-button:active, .dash-spreadsheet-menu button:active {
+                    transform: scale(0.97);
+                }
+                button:focus, .dash-button:focus, .dash-spreadsheet-menu button:focus {
+                    outline: 2px solid #2980b9;
+                }
                 button:hover, .dash-button:hover, .dash-spreadsheet-menu button:hover {
                     background: linear-gradient(90deg, #6dd5fa 0%, #2980b9 100%);
                     box-shadow: 0 4px 16px rgba(41,128,185,0.18);
                     transform: translateY(-2px) scale(1.04);
                 }
-                /* Feedback button override */
                 .feedback-btn {
                     background: linear-gradient(90deg, #4285F4 0%, #34a853 100%);
                     color: #fff;
                 }
                 .feedback-btn:hover {
                     background: linear-gradient(90deg, #34a853 0%, #4285F4 100%);
+                }
+                /* Collapsible section enhancements */
+                details[open] > summary:after {
+                    content: "▲";
+                    float: right;
+                }
+                details > summary:after {
+                    content: "▼";
+                    float: right;
+                }
+                summary {
+                    user-select: none;
+                    -webkit-tap-highlight-color: transparent;
+                }
+                /* Swipeable tabs for mobile */
+                .dash-tabs-container {
+                    overflow-x: auto;
+                    -webkit-overflow-scrolling: touch;
+                    white-space: nowrap;
+                }
+                .dash-tabs {
+                    display: flex;
+                    flex-wrap: nowrap;
+                    overflow-x: auto;
+                    -webkit-overflow-scrolling: touch;
+                }
+                .dash-tab {
+                    flex: 0 0 auto;
+                    min-width: 110px;
+                    text-align: center;
+                    padding: 10px 18px;
+                    margin: 0 2px;
+                    border-radius: 8px 8px 0 0;
+                    background: #e3f2fd;
+                    color: #1565c0;
+                    font-weight: 500;
+                    font-size: 1rem;
+                    cursor: pointer;
+                    transition: background 0.2s, color 0.2s;
+                }
+                .dash-tab--selected {
+                    background: #1565c0;
+                    color: #fff;
                 }
                 @media (max-width: 600px) {
                     .dash-table-container, .dash-spreadsheet-container, .dash-table { font-size: 13px !important; }
@@ -471,8 +516,11 @@ def create_dashboard(data, ticker, predictions, error_metrics=None):
                         font-size: 1.1rem !important;
                         padding: 14px 18px !important;
                     }
+                    .dash-tabs {
+                        font-size: 0.98rem !important;
+                        min-width: 600px;
+                    }
                 }
-                /* Modern input style */
                 .modern-input {
                     width: 100%;
                     max-width: 400px;
@@ -493,6 +541,41 @@ def create_dashboard(data, ticker, predictions, error_metrics=None):
                     background: #f0f8ff;
                 }
             </style>
+            <script>
+            // Swipeable tabs for mobile (basic horizontal scroll)
+            document.addEventListener('DOMContentLoaded', function() {
+                var tabContainer = document.querySelector('.dash-tabs');
+                if(tabContainer) {
+                    let isDown = false;
+                    let startX, scrollLeft;
+                    tabContainer.addEventListener('mousedown', function(e) {
+                        isDown = true;
+                        startX = e.pageX - tabContainer.offsetLeft;
+                        scrollLeft = tabContainer.scrollLeft;
+                    });
+                    tabContainer.addEventListener('mouseleave', function() { isDown = false; });
+                    tabContainer.addEventListener('mouseup', function() { isDown = false; });
+                    tabContainer.addEventListener('mousemove', function(e) {
+                        if(!isDown) return;
+                        e.preventDefault();
+                        const x = e.pageX - tabContainer.offsetLeft;
+                        const walk = (x - startX) * 1.5;
+                        tabContainer.scrollLeft = scrollLeft - walk;
+                    });
+                    // Touch events for mobile
+                    let touchStartX = 0, touchScrollLeft = 0;
+                    tabContainer.addEventListener('touchstart', function(e) {
+                        touchStartX = e.touches[0].pageX;
+                        touchScrollLeft = tabContainer.scrollLeft;
+                    });
+                    tabContainer.addEventListener('touchmove', function(e) {
+                        const x = e.touches[0].pageX;
+                        const walk = (x - touchStartX) * 1.5;
+                        tabContainer.scrollLeft = touchScrollLeft - walk;
+                    });
+                }
+            });
+            </script>
         </head>
         <body>
             {%app_entry%}
@@ -884,8 +967,10 @@ def create_dashboard(data, ticker, predictions, error_metrics=None):
                 ], style={"maxWidth": 900, "margin": "0 auto", "padding": "2vw"})
             except Exception as e:
                 return html.Div(f"Error fetching corporate actions: {e}", style={"color": "red", "textAlign": "center"})
-        if n_clicks == 0 or not ticker_val:
+        # If no ticker entered, show prompt
+        if (n_clicks == 0 and (not ticker_val or not ticker_val.strip())):
             return html.Div("Enter a ticker and click Submit to view analysis.", style={"textAlign": "center", "color": "#888", "marginTop": 40})
+        # (Removed redundant check that blocked default ticker display)
         # Support comma-separated tickers for peer comparison
         tickers = [t.strip() for t in ticker_val.split(",") if t.strip()]
         # Helper: add .NS if not present and not a known US ticker
@@ -1336,7 +1421,43 @@ def create_dashboard(data, ticker, predictions, error_metrics=None):
         if tab == "tab-fundamentals":
             try:
                 stock = yf.Ticker(main_ticker)
-                info = stock.info
+                info = getattr(stock, 'info', {})
+                # Extract fields with fallback
+                company_name = info.get('longName') or info.get('shortName') or main_ticker
+                sector = info.get('sector', 'N/A')
+                industry = info.get('industry', 'N/A')
+                website = info.get('website', None)
+                summary = info.get('longBusinessSummary', 'No business summary available.')
+                logo_url = info.get('logo_url') or info.get('logoUrl') or info.get('logo')
+                if not logo_url and website:
+                    logo_url = f"https://logo.clearbit.com/{website.split('//')[-1].split('/')[0]}"
+                # Profile Card Layout
+                profile_card = html.Div([
+                    html.Div([
+                        html.Img(
+                            src=logo_url if logo_url else "/assets/logocode.png",
+                            alt="Logo",
+                            style={"height": "80px", "marginBottom": 10, "borderRadius": "10px", "boxShadow": "0 2px 8px #eee"}
+                        )
+                    ], style={"textAlign": "center", "marginBottom": 10}),
+                    html.H2(company_name, style={"textAlign": "center", "color": "#1565c0", "marginBottom": 8}),
+                    html.Div([
+                        html.Span("Sector: ", style={"fontWeight": "bold"}),
+                        html.Span(sector),
+                        html.Span(" | ", style={"color": "#bbb"}),
+                        html.Span("Industry: ", style={"fontWeight": "bold"}),
+                        html.Span(industry)
+                    ], style={"textAlign": "center", "color": "#555", "fontSize": 16, "marginBottom": 8}),
+                    html.Div([
+                        html.Span("Website: ", style={"fontWeight": "bold"}),
+                        html.A(website, href=website, target="_blank", style={"color": "#2980b9"}) if website else html.Span("N/A")
+                    ], style={"textAlign": "center", "marginBottom": 12, "fontSize": 15}),
+                    html.Div([
+                        html.H4("Business Summary", style={"color": "#2c3e50", "marginBottom": 6}),
+                        html.P(summary, style={"color": "#444", "fontSize": 15, "textAlign": "justify", "background": "#f8f9fa", "padding": "12px", "borderRadius": "8px", "boxShadow": "0 1px 3px #eee"})
+                    ], style={"maxWidth": 700, "margin": "0 auto"})
+                ], style={"maxWidth": 800, "margin": "0 auto", "background": "#fff", "borderRadius": 10, "boxShadow": "0 2px 12px #f0f0f0", "padding": "24px 18px", "marginTop": 30})
+                # Previous fundamentals table
                 keys = [
                     ("Symbol", "symbol"),
                     ("Name", "shortName"),
@@ -1351,14 +1472,18 @@ def create_dashboard(data, ticker, predictions, error_metrics=None):
                     ("Beta", "beta"),
                 ]
                 rows = [html.Tr([html.Td(label), html.Td(info.get(key, "-"))]) for label, key in keys]
-                return html.Div([
-                    html.H3(f"Fundamentals for {main_ticker}", style={"textAlign": "center", "color": "#2c3e50"}),
+                fundamentals_table = html.Div([
+                    html.H3(f"Key Fundamentals for {main_ticker}", style={"textAlign": "center", "color": "#2c3e50", "marginTop": 30}),
                     html.Table([
                         html.Tbody(rows)
                     ], style={"margin": "0 auto", "fontSize": 16, "background": "#f8f9fa", "borderRadius": 6, "boxShadow": "0 1px 3px #eee", "padding": 10})
                 ])
+                return html.Div([
+                    profile_card,
+                    fundamentals_table
+                ], style={})
             except Exception as e:
-                return html.Div(f"Error fetching fundamentals: {e}", style={"color": "red", "textAlign": "center"})
+                return html.Div(f"Error fetching company info: {e}", style={"color": "red", "textAlign": "center", "marginTop": 40})
         # Market Sentiment tab: summary and chart
         if tab == "tab-sentiment":
             try:
