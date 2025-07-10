@@ -1543,13 +1543,3 @@ if __name__ == "__main__":
     default_predictions, default_error_metrics = predict_stock_prices(default_data)
     app = create_dashboard(default_data, default_ticker, default_predictions, default_error_metrics)
     app.run(debug=True, use_reloader=False, port=8000)
-
-
-
-
-
-
-
-
-
-
