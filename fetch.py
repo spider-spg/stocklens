@@ -20,6 +20,9 @@ def fetch_news_yfinance(ticker):
         print(f"Exception in fetch_news_yfinance: {e}")
         return []
 import yfinance as yf  # Library for fetching stock data
+import os
+from dotenv import load_dotenv
+load_dotenv()
 import pandas as pd  # Library for handling data in tables (like Excel)
 import dash  # Library for creating a web-based dashboard
 from dash import dcc, html  # Components for the Dash dashboard
@@ -396,8 +399,21 @@ def create_dashboard(data, ticker, predictions, error_metrics=None):
     """
     Build and launch a web dashboard for stock analysis using Dash.
     """
+
     app = dash.Dash(__name__)
     server = app.server  # Expose server for Azure
+
+    # Azure Application Insights instrumentation
+    from opencensus.ext.azure.log_exporter import AzureLogHandler
+    from opencensus.ext.flask.flask_middleware import FlaskMiddleware
+    INSTRUMENTATION_KEY = "c2ff798a-3788-480c-9a4b-6138aa575d84"
+    middleware = FlaskMiddleware(
+        server,
+        exporter=AzureLogHandler(
+            connection_string=f'InstrumentationKey={INSTRUMENTATION_KEY}'
+        ),
+        sampler=None,
+    )
 
     # Responsive meta tag for mobile and swipeable/collapsible enhancements
     app.index_string = '''
@@ -809,6 +825,7 @@ def create_dashboard(data, ticker, predictions, error_metrics=None):
             dcc.Tab(label="Financials", value="tab-financials"),
             dcc.Tab(label="Corporate Actions", value="tab-corpactions"),
             dcc.Tab(label="Market Sentiment", value="tab-sentiment"),
+            dcc.Tab(label="IPOs", value="tab-ipos", style={"color": "#1565c0", "fontWeight": "bold"}, selected_style={"background": "#e3f2fd", "color": "#0d47a1"}),
         ],
         style={"fontSize": "clamp(1rem, 3vw, 1.2rem)", "overflowX": "auto"}),
         dcc.Loading(
@@ -869,6 +886,238 @@ def create_dashboard(data, ticker, predictions, error_metrics=None):
          State("end-date", "date")]
     )
     def update_dashboard(n_clicks, tab, ticker_val, start_date_val, end_date_val):
+        # IPOs Tab (InvestorGain API integration)
+        if tab == "tab-ipos":
+            import requests
+            url = "https://webnodejs.investorgain.com/cloud/report/data-read/331/1/7/2025/2025-26/0/all?search=&v=19-18"
+            headers = {
+                "Accept": "application/json, text/plain, */*",
+                "Origin": "https://www.investorgain.com",
+                "Referer": "https://www.investorgain.com/",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"
+            }
+            debug_info = None
+            try:
+                response = requests.get(url, headers=headers, timeout=10)
+            except Exception as e:
+                return html.Div(f"Error fetching IPO data: {e}", style={"color": "red", "textAlign": "center"})
+            try:
+                ipo_data = response.json()
+            except Exception as json_err:
+                decoded = response.text
+                debug_info = html.Pre(f"Raw API response (not JSON):\n{decoded}", style={"maxHeight": "300px", "overflowY": "auto", "background": "#f8f8f8", "color": "#c0392b", "fontSize": 13, "padding": 8, "borderRadius": 6, "marginTop": 10})
+                return html.Div([
+                    html.H3("IPO Data Error", style={"textAlign": "center", "color": "#c0392b", "marginTop": 20}),
+                    html.Div(f"Error parsing IPO API response: {json_err}", style={"color": "red", "textAlign": "center", "marginTop": 10}),
+                    debug_info
+                ], style={"maxWidth": 900, "margin": "0 auto", "padding": "2vw"})
+            ipo_list = ipo_data.get("reportTableData", [])
+            from bs4 import BeautifulSoup
+            # Split IPOs into Upcoming and Closed based on Listing date (future = upcoming, past/today = closed)
+            import datetime
+            today = datetime.datetime.now().date()
+            def parse_listing_date(ldate):
+                # Try DD-MMM (e.g. 14-Jul), fallback to YYYY-MM-DD
+                try:
+                    if ldate and '-' in ldate and len(ldate) == 6:  # e.g. 14-Jul
+                        return datetime.datetime.strptime(ldate+f'-{today.year}', '%d-%b-%Y').date()
+                    elif ldate and '-' in ldate and len(ldate) == 10:  # e.g. 2025-07-14
+                        return datetime.datetime.strptime(ldate, '%Y-%m-%d').date()
+                except Exception:
+                    pass
+                return None
+            upcoming_rows = []
+            closed_rows = []
+            for ipo in ipo_list:
+                name_html = ipo.get("Name", "-")
+                soup = BeautifulSoup(name_html, "html.parser")
+                a_tag = soup.find("a")
+                ipo_name_raw = a_tag.get_text(strip=True) if a_tag else soup.get_text(strip=True) or "-"
+                ipo_cat = ipo.get("~IPO_Category", "")
+                ipo_type = "SME" if ipo_cat.upper() == "SME" else "MAINBOARD"
+                ipo_name = ipo_name_raw
+                gmp_html = ipo.get("GMP", "-")
+                gmp_soup = BeautifulSoup(gmp_html, "html.parser")
+                b_tag = gmp_soup.find("b")
+                gmp_val = b_tag.get_text(strip=True) if b_tag else gmp_soup.get_text(strip=True) or "-"
+                # Add Rs symbol after GMP price if it's a number
+                if gmp_val and gmp_val != "-":
+                    import re
+                    gmp_val_clean = re.sub(r"^(₹|Rs\.?|Rs|INR|\s)+", "", gmp_val, flags=re.IGNORECASE).strip()
+                    gmp = f"₹{gmp_val_clean}"
+                else:
+                    gmp = gmp_val
+                # Use correct keys for issue price, lot size, min investment (robust to missing data)
+                issue_price = ipo.get("Issue_Price") or ipo.get("Price") or ipo.get("Price Band") or "-"
+                # Try all possible keys for lot size and min investment
+                lot_size = (
+                    ipo.get("Lot_Size") or ipo.get("LotSize") or ipo.get("Lot size") or ipo.get("Lot") or ipo.get("MarketLot") or ipo.get("Market Lot") or "-"
+                )
+                # Calculate Min Investment as Issue Price × Lot Size if both are valid numbers
+                def parse_number(val):
+                    if not val or val == "-":
+                        return None
+                    # Remove commas, currency symbols, and non-numeric chars except dot
+                    import re
+                    val = re.sub(r"[^\d.]", "", str(val))
+                    try:
+                        return float(val)
+                    except Exception:
+                        return None
+                issue_price_num = parse_number(issue_price)
+                lot_size_num = parse_number(lot_size)
+                if issue_price_num is not None and lot_size_num is not None:
+                    min_invest_val = issue_price_num * lot_size_num
+                    min_invest = f"₹{int(min_invest_val):,}"
+                else:
+                    min_invest = (
+                        ipo.get("Min_Investment") or ipo.get("MinInvestment") or ipo.get("Min Investment") or ipo.get("Minimum Investment") or ipo.get("Min. Investment") or ipo.get("MinimumInvestment") or "-"
+                    )
+                listing_date = ipo.get("Listing") or ipo.get("~Str_Listing") or "-"
+                # Robustly extract status from possible keys, strip HTML, fallback to 'N/A' if empty
+                status_raw = (
+                    ipo.get("Status") or
+                    ipo.get("IPO_Status") or
+                    ipo.get("~Status") or
+                    ipo.get("IPO Status") or
+                    ipo.get("~IPO_Status") or
+                    ipo.get("~IPO Status") or
+                    None
+                )
+                # Remove HTML tags if present
+                if status_raw:
+                    from bs4 import BeautifulSoup
+                    status_soup = BeautifulSoup(str(status_raw), "html.parser")
+                    status_val = status_soup.get_text(strip=True)
+                    status = status_val if status_val else "N/A"
+                else:
+                    status = "N/A"
+                parsed_date = parse_listing_date(listing_date)
+                # Calculate Est Profit = GMP × Lot Size
+                def parse_gmp_number(val):
+                    if not val or val == "-":
+                        return 0
+                    import re
+                    val = re.sub(r"[^\d.-]", "", str(val))
+                    try:
+                        return float(val)
+                    except Exception:
+                        return 0
+                gmp_num = parse_gmp_number(gmp)
+                est_profit_val = gmp_num * (lot_size_num if lot_size_num is not None else 0)
+                est_profit_color = "green" if est_profit_val > 0 else ("red" if est_profit_val < 0 else "#888")
+                est_profit = html.Span(f"₹{int(est_profit_val):,}", style={"color": est_profit_color, "fontWeight": "bold"})
+                # Extract GMP last updated date/time if available
+                gmp_last_updated = ipo.get("GMP_Last_Updated") or ipo.get("GMP Last Updated") or ipo.get("GMP Updated") or ipo.get("GMPUpdated") or ipo.get("GMP Date") or ipo.get("GMP_Date") or ipo.get("GMPUpdate") or "-"
+                # Try to parse and format date/time if possible
+                def format_gmp_last_updated(val):
+                    import re
+                    from datetime import datetime
+                    if not val or val == "-":
+                        return "-"
+                    # Remove HTML if present
+                    try:
+                        from bs4 import BeautifulSoup
+                        val = BeautifulSoup(str(val), "html.parser").get_text(strip=True)
+                    except Exception:
+                        pass
+                    # Try to match date and time patterns
+                    # Common formats: '12-Jul-2025 10:30 AM', '2025-07-12 10:30', '12/07/2025 10:30', etc.
+                    patterns = [
+                        (r"(\d{1,2}-[A-Za-z]{3}-\d{4} \d{1,2}:\d{2} ?[APMapm]{2})", "%d-%b-%Y %I:%M %p"),
+                        (r"(\d{4}-\d{2}-\d{2} \d{1,2}:\d{2})", "%Y-%m-%d %H:%M"),
+                        (r"(\d{1,2}/\d{1,2}/\d{4} \d{1,2}:\d{2})", "%d/%m/%Y %H:%M"),
+                        (r"(\d{1,2}-[A-Za-z]{3}-\d{4})", "%d-%b-%Y"),
+                        (r"(\d{4}-\d{2}-\d{2})", "%Y-%m-%d"),
+                    ]
+                    for pat, fmt in patterns:
+                        m = re.search(pat, val)
+                        if m:
+                            try:
+                                dt = datetime.strptime(m.group(1), fmt)
+                                return dt.strftime("%d-%b-%Y %I:%M %p") if 'H' in fmt or 'I' in fmt else dt.strftime("%d-%b-%Y")
+                            except Exception:
+                                continue
+                    # If no pattern matched, return as is
+                    return val
+                gmp_last_updated_disp = format_gmp_last_updated(gmp_last_updated)
+                row = html.Tr([
+                    html.Td(ipo_name, style={"fontWeight": "bold", "fontSize": 15, "padding": "12px 8px"}, title=str(ipo)),
+                    html.Td(ipo_type, style={"fontSize": 14, "padding": "12px 8px"}),
+                    html.Td(gmp, style={"fontSize": 14, "padding": "12px 8px"}),
+                    html.Td(issue_price, style={"fontSize": 14, "padding": "12px 8px"}),
+                    html.Td(lot_size, style={"fontSize": 14, "padding": "12px 8px"}),
+                    html.Td(min_invest, style={"fontSize": 14, "padding": "12px 8px"}),
+                    html.Td(est_profit, style={"fontSize": 14, "padding": "12px 8px"}),
+                    # Closing Date column (before Listing Date)
+                    html.Td(
+                        ipo.get("Close") or "-",
+                        style={"fontSize": 14, "padding": "12px 8px", "color": "#111"}
+                    ),
+                    html.Td(listing_date, style={"fontSize": 14, "padding": "12px 8px"}),
+                    html.Td(gmp_last_updated_disp, style={"fontSize": 14, "padding": "12px 8px", "color": "#111"})
+                ], style={"borderBottom": "2px solid #e0e0e0"})
+                if parsed_date and parsed_date > today:
+                    upcoming_rows.append((parsed_date, row))
+                else:
+                    closed_rows.append((parsed_date if parsed_date else today, row))
+            # Sort by date ascending
+            upcoming_rows.sort(key=lambda x: x[0])
+            closed_rows.sort(key=lambda x: x[0], reverse=True)
+            # Remove date from tuples
+            upcoming_rows = [r for _, r in upcoming_rows]
+            closed_rows = [r for _, r in closed_rows]
+            ipo_table_header = [
+                html.Th("IPO Name", style={"padding": "8px", "background": "#e9ecef", "border": "1px solid #ccc"}),
+                html.Th("Type", style={"padding": "8px", "background": "#e9ecef", "border": "1px solid #ccc"}),
+                html.Th("GMP", style={"padding": "8px", "background": "#e9ecef", "border": "1px solid #ccc"}),
+                html.Th("Issue Price", style={"padding": "8px", "background": "#e9ecef", "border": "1px solid #ccc"}),
+                html.Th("Lot Size", style={"padding": "8px", "background": "#e9ecef", "border": "1px solid #ccc"}),
+                html.Th("Min Investment", style={"padding": "8px", "background": "#e9ecef", "border": "1px solid #ccc"}),
+                html.Th("Est Profit", style={"padding": "8px", "background": "#e9ecef", "border": "1px solid #ccc"}),
+                html.Th("Closing Date", style={"padding": "8px", "background": "#e9ecef", "border": "1px solid #ccc", "color": "#111"}),
+                html.Th("Listing Date", style={"padding": "8px", "background": "#e9ecef", "border": "1px solid #ccc"}),
+                html.Th("GMP Last Updated", style={"padding": "8px", "background": "#e9ecef", "border": "1px solid #ccc", "color": "#111"})
+            ]
+            if not upcoming_rows:
+                upcoming_rows = [html.Tr([html.Td("No upcoming IPOs found.", colSpan=10, style={"textAlign": "center", "color": "#888", "padding": "10px"})])]
+            if not closed_rows:
+                closed_rows = [html.Tr([html.Td("No closed IPOs found.", colSpan=10, style={"textAlign": "center", "color": "#888", "padding": "10px"})])]
+            table_style = {
+                "width": "100%",
+                "marginBottom": 20,
+                "background": "#f8f9fa",
+                "borderRadius": 6,
+                "boxShadow": "0 1px 3px #eee",
+                "padding": 10,
+                "border": "1px solid #ccc",
+                "borderCollapse": "collapse",
+                "fontSize": 15
+            }
+            upcoming_table = html.Table([
+                html.Thead(html.Tr(ipo_table_header)),
+                html.Tbody(upcoming_rows)
+            ], style=table_style)
+            closed_table = html.Table([
+                html.Thead(html.Tr(ipo_table_header)),
+                html.Tbody(closed_rows)
+            ], style=table_style)
+            children = [
+                html.Div(
+                    "Admin does not trade in the grey market nor encourage trading in the grey market. As GMP is unofficial, thus there are no regulatory bodies (rules and regulations) involved.",
+                    style={"color": "#c0392b", "fontWeight": "bold", "textAlign": "center", "margin": "18px 0 10px 0", "fontSize": 16}
+                ),
+                html.H3("Upcoming IPOs", style={"textAlign": "center", "color": "#1565c0", "marginTop": 20}),
+                upcoming_table,
+                html.H3("Closed IPOs", style={"textAlign": "center", "color": "#2c3e50", "marginTop": 20}),
+                closed_table
+            ]
+            if debug_info:
+                children.append(html.Div([
+                    html.H5("API Debug Info (for developer):", style={"color": "#c0392b", "marginTop": 18}),
+                    debug_info
+                ]))
+            return html.Div(children, style={"maxWidth": 900, "margin": "0 auto", "padding": "2vw"})
         # Support comma-separated tickers for peer comparison
         tickers = [t.strip() for t in ticker_val.split(",") if t.strip()] if ticker_val else []
         def normalize_ticker(t):

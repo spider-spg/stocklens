@@ -6,6 +6,7 @@ plotly
 numpy
 rich
 openpyxl
-requests
+opencensus-ext-azure
+opencensus-ext-flask
 beautifulsoup4
-textblob
+requests
