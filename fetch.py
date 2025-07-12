@@ -406,7 +406,8 @@ def create_dashboard(data, ticker, predictions, error_metrics=None):
     # Azure Application Insights instrumentation
     from opencensus.ext.azure.log_exporter import AzureLogHandler
     from opencensus.ext.flask.flask_middleware import FlaskMiddleware
-    INSTRUMENTATION_KEY = "c2ff798a-3788-480c-9a4b-6138aa575d84"
+    import os
+    INSTRUMENTATION_KEY = os.getenv("APPLICATION_INSIGHTS_INSTRUMENTATION_KEY", "")
     middleware = FlaskMiddleware(
         server,
         exporter=AzureLogHandler(
@@ -1042,7 +1043,7 @@ def create_dashboard(data, ticker, predictions, error_metrics=None):
                     return val
                 gmp_last_updated_disp = format_gmp_last_updated(gmp_last_updated)
                 row = html.Tr([
-                    html.Td(ipo_name, style={"fontWeight": "bold", "fontSize": 15, "padding": "12px 8px"}, title=str(ipo)),
+                    html.Td(ipo_name, style={"fontWeight": "bold", "fontSize": 15, "padding": "12px 8px"}),
                     html.Td(ipo_type, style={"fontSize": 14, "padding": "12px 8px"}),
                     html.Td(gmp, style={"fontSize": 14, "padding": "12px 8px"}),
                     html.Td(issue_price, style={"fontSize": 14, "padding": "12px 8px"}),
