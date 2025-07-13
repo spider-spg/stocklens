@@ -1,4 +1,5 @@
 
+
 # Fetch news using yfinance only
 def fetch_news_yfinance(ticker):
     """
@@ -400,6 +401,7 @@ def create_dashboard(data, ticker, predictions, error_metrics=None):
     Build and launch a web dashboard for stock analysis using Dash.
     """
 
+
     app = dash.Dash(__name__)
     server = app.server  # Expose server for Azure
 
@@ -734,6 +736,27 @@ def create_dashboard(data, ticker, predictions, error_metrics=None):
         ], style={"maxWidth": 900, "margin": "20px auto 0 auto", "padding": 12, "background": "#fff3cd", "border": "1px solid #ffeeba", "borderRadius": 6, "boxShadow": "0 1px 3px #eee"})
     ])
 
+    import pandas as pd
+
+    import re
+    nse_df = pd.read_csv("NSE.csv")
+    # Only keep equities (EQ) from NSE, drop F&O and others, and exclude names starting with a number
+    nse_df = nse_df[(
+        nse_df["instrument_type"].str.upper() == "EQUITY"
+    ) & (
+        nse_df["exchange"] == "NSE_EQ"
+    ) & (
+        nse_df["name"].notna()
+    ) & (
+        nse_df["tradingsymbol"].notna()
+    )]
+    # Exclude rows where 'tradingsymbol' starts with a number
+    nse_df = nse_df[~nse_df["tradingsymbol"].astype(str).str.match(r"^\d")]  # Exclude tradingsymbols starting with a digit
+    nse_options = [
+        {"label": f"{row['name']} ({row['tradingsymbol']})", "value": row['tradingsymbol']}
+        for _, row in nse_df.iterrows()
+    ]
+
     app.layout = html.Div([
         # Floating Disclaimer Modal Overlay
         html.Div(
@@ -801,11 +824,14 @@ def create_dashboard(data, ticker, predictions, error_metrics=None):
             }
         ),
         html.Div([
-            dcc.Input(
+            dcc.Dropdown(
                 id="ticker-input",
-                type="text",
-                placeholder="Enter stock symbol(s) (e.g., AAPL, TCS.NS)",
+                options=[],  # Start with no options
+                placeholder="Enter stock name or symbol (e.g., TCS, Tata Consultancy)",
                 value=ticker,
+                searchable=True,
+                clearable=True,
+                style={"width": "100%", "maxWidth": 400, "marginBottom": 10},
                 className="modern-input"
             ),
             html.Div([
@@ -859,7 +885,28 @@ def create_dashboard(data, ticker, predictions, error_metrics=None):
                 html.Span(" by Nikunj Maru", style={"color": "#888"})
             ], style={"textAlign": "center", "marginTop": 30, "marginBottom": 10, "fontSize": 16})
         ])
+
+
     ], style={"fontFamily": "Segoe UI, Arial, sans-serif", "backgroundColor": "#f8f9fa", "padding": 0, "minHeight": "100vh", "width": "100vw", "boxSizing": "border-box"})
+
+
+    # Callback to update dropdown options only when user types
+    @app.callback(
+        Output("ticker-input", "options"),
+        [Input("ticker-input", "search_value")],
+        [State("ticker-input", "value")]
+    )
+    def update_ticker_options(search_value, current_value):
+        if not search_value or not search_value.strip():
+            # Show only the selected value as an option if one is selected
+            if current_value:
+                selected = [opt for opt in nse_options if opt["value"] == current_value]
+                return selected
+            return []
+        search_value = search_value.strip().lower()
+        filtered = [opt for opt in nse_options if search_value in opt["label"].lower() or search_value in opt["value"].lower()]
+        return filtered[:20]  # Limit to 20 suggestions
+
 
     # Hide/show disclaimer modal for every visit (no persistence)
     @app.callback(
@@ -1043,7 +1090,7 @@ def create_dashboard(data, ticker, predictions, error_metrics=None):
                     return val
                 gmp_last_updated_disp = format_gmp_last_updated(gmp_last_updated)
                 row = html.Tr([
-                    html.Td(ipo_name, style={"fontWeight": "bold", "fontSize": 15, "padding": "12px 8px"}),
+                    html.Td(ipo_name, style={"fontWeight": "bold", "fontSize": 15, "padding": "12px 8px"}, title=str(ipo)),
                     html.Td(ipo_type, style={"fontSize": 14, "padding": "12px 8px"}),
                     html.Td(gmp, style={"fontSize": 14, "padding": "12px 8px"}),
                     html.Td(issue_price, style={"fontSize": 14, "padding": "12px 8px"}),
@@ -1120,7 +1167,8 @@ def create_dashboard(data, ticker, predictions, error_metrics=None):
                 ]))
             return html.Div(children, style={"maxWidth": 900, "margin": "0 auto", "padding": "2vw"})
         # Support comma-separated tickers for peer comparison
-        tickers = [t.strip() for t in ticker_val.split(",") if t.strip()] if ticker_val else []
+        # ticker_val is now a single symbol from dropdown
+        tickers = [ticker_val] if ticker_val else []
         def normalize_ticker(t):
             t = t.upper()
             if "." in t:
@@ -1222,7 +1270,7 @@ def create_dashboard(data, ticker, predictions, error_metrics=None):
             return html.Div("Enter a ticker and click Submit to view analysis.", style={"textAlign": "center", "color": "#888", "marginTop": 40})
         # (Removed redundant check that blocked default ticker display)
         # Support comma-separated tickers for peer comparison
-        tickers = [t.strip() for t in ticker_val.split(",") if t.strip()]
+        tickers = [t.strip() for t in (ticker_val or "").split(",") if t.strip()]
         # Helper: add .NS if not present and not a known US ticker
         def normalize_ticker(t):
             t = t.upper()
