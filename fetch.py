@@ -402,7 +402,7 @@ def create_dashboard(data, ticker, predictions, error_metrics=None):
     """
 
 
-    app = dash.Dash(__name__)
+    app = dash.Dash(__name__, suppress_callback_exceptions=True)
     server = app.server  # Expose server for Azure
 
     # Azure Application Insights instrumentation
@@ -757,137 +757,221 @@ def create_dashboard(data, ticker, predictions, error_metrics=None):
         for _, row in nse_df.iterrows()
     ]
 
+    # Import page layouts
+    from explore_page import get_explore_layout
+    from how_it_works_page import get_how_it_works_layout
+    from contact_us_page import get_contact_us_layout
+    from support_page import get_support_layout
+    from help_center_page import get_help_center_layout
+    from terms_of_service_page import get_terms_of_service_layout
+    from legal_page import get_legal_layout
+    from privacy_policy_page import get_privacy_policy_layout
+
     app.layout = html.Div([
-        # Floating Disclaimer Modal Overlay
-        html.Div(
-            id="disclaimer-modal",
-            children=[
-                html.Div([
-                    html.H2("Disclaimer", style={"color": "#1565c0", "marginBottom": 12, "textAlign": "center"}),
-                    html.P(
-                        "This tool is for educational and informational purposes only. It does not constitute investment advice, recommendation, or solicitation to buy or sell any securities. The creator and contributors of this tool are not SEBI-registered investment advisors. Users are solely responsible for their own investment decisions and should consult a SEBI-registered financial advisor before making any investment decisions. The creators and contributors assume no liability for any losses or damages arising from the use of this tool. Past performance is not indicative of future results. All investments are subject to market risks, including the possible loss of principal. By using this tool, you acknowledge and accept these risks.",
-                        style={"color": "#333", "fontSize": 16, "marginBottom": 24, "textAlign": "justify"}
-                    ),
-                    html.Button("I Agree", id="agree-btn", n_clicks=0, style={
-                        "background": "#1565c0",
-                        "color": "white",
-                        "border": "none",
-                        "padding": "12px 32px",
-                        "borderRadius": "6px",
-                        "fontSize": "1.1rem",
-                        "fontWeight": "bold",
-                        "boxShadow": "0 2px 8px rgba(21,101,192,0.13)",
-                        "cursor": "pointer",
-                        "margin": "0 auto",
-                        "display": "block"
-                    })
-                ], style={
-                    "background": "#fff",
-                    "padding": "32px 24px 24px 24px",
-                    "borderRadius": "12px",
-                    "boxShadow": "0 4px 32px rgba(44,62,80,0.18)",
-                    "maxWidth": "480px",
-                    "width": "90vw",
-                    "margin": "10vh auto 0 auto",
-                    "textAlign": "center"
-                })
-            ],
-            style={
-                "position": "fixed",
-                "top": 0,
-                "left": 0,
-                "width": "100vw",
-                "height": "100vh",
-                "background": "rgba(44,62,80,0.55)",
-                "zIndex": 9999,
-                "display": "flex",
-                "alignItems": "flex-start",
-                "justifyContent": "center"
-            }
-        ),
-        # No persistent store, always prompt on page load
-        html.Div([
-            html.Img(
-                src="/assets/logocode.jpg",
-                className="stocklens-logo",
-                alt="Logo"
-            )
-        ]),
-        html.H1(
-            "StockLens Hub",
-            style={
-                "textAlign": "center",
-                "color": "#2c3e50",
-                "marginTop": 20,
-                "fontSize": "clamp(1.5rem, 5vw, 2.5rem)",
-                "marginBottom": 0,
-            }
-        ),
-        html.Div([
-            dcc.Dropdown(
-                id="ticker-input",
-                options=[],  # Start with no options
-                placeholder="Enter stock name or symbol (e.g., TCS, Tata Consultancy)",
-                value=ticker,
-                searchable=True,
-                clearable=True,
-                style={"width": "100%", "maxWidth": 400, "marginBottom": 10},
-                className="modern-input"
-            ),
-            html.Div([
-                dcc.DatePickerSingle(id="start-date", placeholder="Start Date", style={"marginRight": 10, "marginBottom": 10}),
-                dcc.DatePickerSingle(id="end-date", placeholder="End Date", style={"marginRight": 10, "marginBottom": 10}),
-                html.Span(
-                    "(Default: last 5 years. Set dates for custom analysis)",
-                    style={"marginLeft": 12, "color": "#888", "fontSize": "1rem", "verticalAlign": "middle", "whiteSpace": "nowrap"}
-                )
-            ], style={"display": "flex", "alignItems": "center", "justifyContent": "center", "gap": 4, "flexWrap": "wrap", "marginBottom": 10}),
-            html.Button("Submit", id="submit-btn", n_clicks=0, style={"background": "#2980b9", "color": "white", "border": "none", "padding": "8px 18px", "borderRadius": 5, "fontSize": "1rem", "width": "90%", "maxWidth": 200})
-        ], style={"textAlign": "center", "marginBottom": 30, "display": "flex", "flexDirection": "column", "alignItems": "center", "gap": 8}),
-        # Removed export controls and download prompt
-        dcc.Tabs(id="main-tabs", value="tab-analysis", children=[
-            dcc.Tab(label="Analysis", value="tab-analysis"),
-            dcc.Tab(label="News", value="tab-news"),
-            dcc.Tab(label="Fundamentals", value="tab-fundamentals"),
-            dcc.Tab(label="Financials", value="tab-financials"),
-            dcc.Tab(label="Corporate Actions", value="tab-corpactions"),
-            dcc.Tab(label="Market Sentiment", value="tab-sentiment"),
-            dcc.Tab(label="IPOs", value="tab-ipos", style={"color": "#1565c0", "fontWeight": "bold"}, selected_style={"background": "#e3f2fd", "color": "#0d47a1"}),
-        ],
-        style={"fontSize": "clamp(1rem, 3vw, 1.2rem)", "overflowX": "auto"}),
-        dcc.Loading(
-            id="dashboard-loading",
-            type="circle",
-            color="#1565c0",
-            fullscreen=False,
-            children=html.Div(id="dashboard-content")
-        ),
-        # dcc.Download(id="download-data") removed
-        education_section,
-        disclaimer_section,
-        # Feedback button directly below disclaimer
-        html.Div([
-            html.A(
-                html.Button("Submit Feedback", className="feedback-btn", style={
-                    "margin": "18px auto 0 auto",
-                    "display": "block"
-                }),
-                href="https://forms.gle/kdLnidUgrumkz9uS6",
-                target="_blank",
-                style={"textDecoration": "none", "display": "block", "width": "fit-content", "margin": "0 auto"}
-            )
-        ]),
-        html.Hr(),
+        dcc.Location(id="url", refresh=False),
+        html.Div(id="page-content"),
+        # Modern light footer interface
         html.Footer([
             html.Div([
-                html.Span("Made with ", style={"color": "#888"}),
-                html.Span("❤", style={"color": "#e74c3c", "fontSize": 18, "fontWeight": "bold"}),
-                html.Span(" by Nikunj Maru", style={"color": "#888"})
-            ], style={"textAlign": "center", "marginTop": 30, "marginBottom": 10, "fontSize": 16})
+                html.Div([
+                    # Left: Logo and newsletter
+                    html.Div([
+                        html.Div([
+                            html.Img(src="/assets/logocode.png", style={"height": "40px", "marginBottom": "10px"}),
+                            html.A(
+                                html.H3("StockLens", style={"color": "#222", "fontWeight": "bold", "marginBottom": "8px", "fontSize": "1.3rem", "cursor": "pointer"}),
+                                href="/",
+                                style={"textDecoration": "none"}
+                            ),
+                            html.Div("Get the latest updates", style={"color": "#222", "marginBottom": "10px", "fontSize": "1rem"}),
+                            html.Div([
+                                dcc.Input(type="email", placeholder="Your Email", style={"padding": "10px 16px", "borderRadius": "6px 0 0 6px", "border": "1px solid #ccc", "background": "#fff", "color": "#222", "width": "180px"}),
+                                html.Button("Email me", style={"background": "linear-gradient(90deg, #2980b9 0%, #6dd5fa 100%)", "color": "#fff", "border": "none", "borderRadius": "0 6px 6px 0", "padding": "10px 22px", "fontWeight": "bold", "fontSize": "1rem", "cursor": "pointer"})
+                            ], style={"display": "flex", "marginTop": "8px"})
+                        ], style={"marginBottom": "30px"})
+                    ], style={"flex": 1, "minWidth": "260px"}),
+                    # Center: Links
+                    html.Div([
+                        html.H4("StockLens", style={"color": "#222", "fontWeight": "bold", "marginBottom": "10px"}),
+                        html.Div([
+                            html.A("Explore", href="/explore", style={"color": "#222", "marginBottom": "6px", "cursor": "pointer", "display": "block"}),
+                            html.A("How it Works", href="/how-it-works", style={"color": "#222", "marginBottom": "6px", "cursor": "pointer", "display": "block"}),
+                            html.A("Contact Us", href="/contact-us", style={"color": "#222", "marginBottom": "6px", "cursor": "pointer", "display": "block"})
+                        ])
+                    ], style={"flex": 1, "minWidth": "180px"}),
+                    # Right: Support
+                    html.Div([
+                        html.H4("Support", style={"color": "#222", "fontWeight": "bold", "marginBottom": "10px"}),
+                        html.Div([
+                            html.A("Help Center", href="/help-center", style={"color": "#222", "marginBottom": "6px", "cursor": "pointer", "display": "block"}),
+                            html.A("Terms of service", href="/terms-of-service", style={"color": "#222", "marginBottom": "6px", "cursor": "pointer", "display": "block"}),
+                            html.A("Legal", href="/legal", style={"color": "#222", "marginBottom": "6px", "cursor": "pointer", "display": "block"}),
+                            html.A("Privacy policy", href="/privacy-policy", style={"color": "#222", "marginBottom": "6px", "cursor": "pointer", "display": "block"})
+                        ])
+                    ], style={"flex": 1, "minWidth": "180px"})
+                ], style={"display": "flex", "justifyContent": "space-between", "gap": "40px", "padding": "40px 0 10px 0", "maxWidth": "1100px", "margin": "0 auto", "flexWrap": "wrap"}),
+                # Bottom: Social and message
+                html.Div([
+                    html.Div([
+                        html.Span("Made with ", style={"color": "#222", "fontSize": "1rem"}),
+                        html.Span("❤", style={"color": "#e74c3c", "fontSize": 18, "fontWeight": "bold", "marginLeft": "6px"}),
+                        html.Span(" by Nikunj Maru", style={"color": "#222", "fontSize": "1rem", "fontWeight": "bold", "marginLeft": "6px"})
+                    ], style={"textAlign": "center", "marginBottom": "12px"}),
+                    html.Div([
+                        html.A(html.I(className="fa fa-github"), href="https://github.com/", target="_blank", style={"color": "#222", "fontSize": "1.5rem", "marginRight": "18px"}),
+                        html.A(html.I(className="fa fa-linkedin"), href="https://linkedin.com/", target="_blank", style={"color": "#222", "fontSize": "1.5rem", "marginRight": "18px"}),
+                        html.A(html.I(className="fa fa-twitter"), href="https://twitter.com/", target="_blank", style={"color": "#222", "fontSize": "1.5rem"})
+                    ], style={"textAlign": "center", "marginBottom": "10px"})
+                ], style={"marginTop": "10px"})
+            ], style={"background": "#f8f9fa", "padding": "0 0 0 0", "marginTop": "40px", "width": "100vw", "borderTop": "1px solid #e0e0e0"})
         ])
-
-
     ], style={"fontFamily": "Segoe UI, Arial, sans-serif", "backgroundColor": "#f8f9fa", "padding": 0, "minHeight": "100vh", "width": "100vw", "boxSizing": "border-box"})
+
+    # Multi-page callback
+    @app.callback(
+        Output("page-content", "children"),
+        [Input("url", "pathname")]
+    )
+    def display_page(pathname):
+        if pathname == "/explore":
+            return get_explore_layout()
+        elif pathname == "/how-it-works":
+            return get_how_it_works_layout()
+        elif pathname == "/contact-us":
+            return get_contact_us_layout()
+        elif pathname == "/support":
+            return get_support_layout()
+        elif pathname == "/help-center":
+            return get_help_center_layout()
+        elif pathname == "/terms-of-service":
+            return get_terms_of_service_layout()
+        elif pathname == "/legal":
+            return get_legal_layout()
+        elif pathname == "/privacy-policy":
+            return get_privacy_policy_layout()
+        # Default: main dashboard
+        return html.Div([
+            # Floating Disclaimer Modal Overlay
+            html.Div(
+                id="disclaimer-modal",
+                children=[
+                    html.Div([
+                        html.H2("Disclaimer", style={"color": "#1565c0", "marginBottom": 12, "textAlign": "center"}),
+                        html.P(
+                            "This tool is for educational and informational purposes only. It does not constitute investment advice, recommendation, or solicitation to buy or sell any securities. The creator and contributors of this tool are not SEBI-registered investment advisors. Users are solely responsible for their own investment decisions and should consult a SEBI-registered financial advisor before making any investment decisions. The creators and contributors assume no liability for any losses or damages arising from the use of this tool. Past performance is not indicative of future results. All investments are subject to market risks, including the possible loss of principal. By using this tool, you acknowledge and accept these risks.",
+                            style={"color": "#333", "fontSize": 16, "marginBottom": 24, "textAlign": "justify"}
+                        ),
+                        html.Button("I Agree", id="agree-btn", n_clicks=0, style={
+                            "background": "#1565c0",
+                            "color": "white",
+                            "border": "none",
+                            "padding": "12px 32px",
+                            "borderRadius": "6px",
+                            "fontSize": "1.1rem",
+                            "fontWeight": "bold",
+                            "boxShadow": "0 2px 8px rgba(21,101,192,0.13)",
+                            "cursor": "pointer",
+                            "margin": "0 auto",
+                            "display": "block"
+                        })
+                    ], style={
+                        "background": "#fff",
+                        "padding": "32px 24px 24px 24px",
+                        "borderRadius": "12px",
+                        "boxShadow": "0 4px 32px rgba(44,62,80,0.18)",
+                        "maxWidth": "480px",
+                        "width": "90vw",
+                        "margin": "10vh auto 0 auto",
+                        "textAlign": "center"
+                    })
+                ],
+                style={
+                    "position": "fixed",
+                    "top": 0,
+                    "left": 0,
+                    "width": "100vw",
+                    "height": "100vh",
+                    "background": "rgba(44,62,80,0.55)",
+                    "zIndex": 9999,
+                    "display": "flex",
+                    "alignItems": "flex-start",
+                    "justifyContent": "center"
+                }
+            ),
+            # No persistent store, always prompt on page load
+            html.Div([
+                html.Img(
+                    src="/assets/logocode.jpg",
+                    className="stocklens-logo",
+                    alt="Logo"
+                )
+            ]),
+            html.H1(
+                "StockLens Hub",
+                style={
+                    "textAlign": "center",
+                    "color": "#2c3e50",
+                    "marginTop": 20,
+                    "fontSize": "clamp(1.5rem, 5vw, 2.5rem)",
+                    "marginBottom": 0,
+                }
+            ),
+            html.Div([
+                dcc.Dropdown(
+                    id="ticker-input",
+                    options=[],  # Start with no options
+                    placeholder="Enter stock name or symbol (e.g., TCS, Tata Consultancy)",
+                    value=ticker,
+                    searchable=True,
+                    clearable=True,
+                    style={"width": "100%", "maxWidth": 400, "marginBottom": 10},
+                    className="modern-input"
+                ),
+                html.Div([
+                    dcc.DatePickerSingle(id="start-date", placeholder="Start Date", style={"marginRight": 10, "marginBottom": 10}),
+                    dcc.DatePickerSingle(id="end-date", placeholder="End Date", style={"marginRight": 10, "marginBottom": 10}),
+                    html.Span(
+                        "(Default: last 5 years. Set dates for custom analysis)",
+                        style={"marginLeft": 12, "color": "#888", "fontSize": "1rem", "verticalAlign": "middle", "whiteSpace": "nowrap"}
+                    )
+                ], style={"display": "flex", "alignItems": "center", "justifyContent": "center", "gap": 4, "flexWrap": "wrap", "marginBottom": 10}),
+                html.Button("Submit", id="submit-btn", n_clicks=0, style={"background": "#2980b9", "color": "white", "border": "none", "padding": "8px 18px", "borderRadius": 5, "fontSize": "1rem", "width": "90%", "maxWidth": 200})
+            ], style={"textAlign": "center", "marginBottom": 30, "display": "flex", "flexDirection": "column", "alignItems": "center", "gap": 8}),
+            # Removed export controls and download prompt
+            dcc.Tabs(id="main-tabs", value="tab-analysis", children=[
+                dcc.Tab(label="Analysis", value="tab-analysis"),
+                dcc.Tab(label="News", value="tab-news"),
+                dcc.Tab(label="Fundamentals", value="tab-fundamentals"),
+                dcc.Tab(label="Financials", value="tab-financials"),
+                dcc.Tab(label="Corporate Actions", value="tab-corpactions"),
+                dcc.Tab(label="Market Sentiment", value="tab-sentiment"),
+                dcc.Tab(label="IPOs", value="tab-ipos", style={"color": "#1565c0", "fontWeight": "bold"}, selected_style={"background": "#e3f2fd", "color": "#0d47a1"}),
+            ],
+            style={"fontSize": "clamp(1rem, 3vw, 1.2rem)", "overflowX": "auto"}),
+            dcc.Loading(
+                id="dashboard-loading",
+                type="circle",
+                color="#1565c0",
+                fullscreen=False,
+                children=html.Div(id="dashboard-content")
+            ),
+            # dcc.Download(id="download-data") removed
+            education_section,
+            disclaimer_section,
+            # Feedback button directly below disclaimer
+            html.Div([
+                html.A(
+                    html.Button("Submit Feedback", className="feedback-btn", style={
+                        "margin": "18px auto 0 auto",
+                        "display": "block"
+                    }),
+                    href="https://forms.gle/kdLnidUgrumkz9uS6",
+                    target="_blank",
+                    style={"textDecoration": "none", "display": "block", "width": "fit-content", "margin": "0 auto"}
+                )
+            ]),
+            html.Hr(),
+        ])
 
 
     # Callback to update dropdown options only when user types
